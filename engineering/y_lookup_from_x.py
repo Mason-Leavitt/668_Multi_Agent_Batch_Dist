@@ -97,7 +97,7 @@ def lookup_y_from_x(
     y_value = y0 + (x_value - x0) * (y1 - y0) / (x1 - x0)
     return y_value
 
-from unifac_vle_data_etoh_h2o import UNIFAC_VLE_DATA_ETOH_H2O
+from engineering.unifac_vle_data_etoh_h2o import UNIFAC_VLE_DATA_ETOH_H2O
 
 def get_y(x_value: float) -> float:
     return lookup_y_from_x(UNIFAC_VLE_DATA_ETOH_H2O, x_value)

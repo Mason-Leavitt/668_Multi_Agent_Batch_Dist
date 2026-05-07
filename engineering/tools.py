@@ -1,5 +1,6 @@
-import formulas as f
 import math
+
+import engineering.formulas as f
 
 def solve_batch_given_W0_x0_xB(W0: float, x0: float, xB: float, n: int = 100) -> dict:
     B = f.get_B_rayleigh(W0, x0, xB, n=n)

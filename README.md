@@ -4,6 +4,16 @@
 
 `smoke_test_graph.py` now checks multiple graph paths, including two successful solve paths and one clarification path.
 
+Project structure:
+
+```text
+v02/
+  graph_demo.py
+  smoke_test_graph.py
+  agents/
+  engineering/
+```
+
 Run with the project virtual environment:
 
 ```powershell

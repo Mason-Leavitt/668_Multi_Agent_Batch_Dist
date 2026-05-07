@@ -1,6 +1,6 @@
 import math
 
-from y_lookup_from_x import get_y
+from engineering.y_lookup_from_x import get_y
 
 def validate_finite(value: float, name: str) -> None:
     if not math.isfinite(value):

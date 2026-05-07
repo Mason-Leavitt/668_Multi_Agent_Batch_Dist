@@ -1,4 +1,4 @@
-from graph_demo import build_graph
+from agents.graph import build_graph
 
 
 HAPPY_PATH_1_MESSAGE = (

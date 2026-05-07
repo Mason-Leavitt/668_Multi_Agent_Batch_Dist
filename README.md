@@ -19,6 +19,7 @@ Run with the project virtual environment:
 ```powershell
 .venv\Scripts\python.exe .\graph_demo.py
 .venv\Scripts\python.exe .\smoke_test_graph.py
+.venv\Scripts\python.exe .\chat_cli.py
 ```
 
 If you use `uv`, you can also run:
@@ -26,4 +27,5 @@ If you use `uv`, you can also run:
 ```powershell
 uv run python .\graph_demo.py
 uv run python .\smoke_test_graph.py
+uv run python .\chat_cli.py
 ```

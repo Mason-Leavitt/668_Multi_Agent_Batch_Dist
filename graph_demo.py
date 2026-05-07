@@ -1,10 +1,50 @@
+import os
+from textwrap import dedent
 from typing import Any, TypedDict, Literal
 
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
+from pydantic import BaseModel, Field
 
 # Import your deterministic tool.
 # Adjust this import depending on your file names.
 from tools import solve_D_given_W0_x0_xDavg, check_batch_consistency
+
+load_dotenv()
+
+ProblemType = Literal[
+    "solve_D_given_W0_x0_xDavg",
+    "solve_batch_given_W0_x0_xB",
+    "check_batch_consistency",
+    "unknown",
+]
+
+
+class StructuredProblemRequest(BaseModel):
+    problem_type: ProblemType
+    knowns: dict[str, float] = Field(default_factory=dict)
+    unknowns: list[str] = Field(default_factory=list)
+    needs_clarification: bool
+    clarification_question: str | None = None
+
+
+class StructuredKnowns(BaseModel):
+    W0: float | None = None
+    x0: float | None = None
+    xB: float | None = None
+    xDavg_target: float | None = None
+    xDavg: float | None = None
+    B: float | None = None
+    D: float | None = None
+
+
+class StructuredProblemRequestLLM(BaseModel):
+    problem_type: ProblemType
+    knowns: StructuredKnowns = Field(default_factory=StructuredKnowns)
+    unknowns: list[str] = Field(default_factory=list)
+    needs_clarification: bool
+    clarification_question: str | None = None
 
 
 class BatchDistillationState(TypedDict, total=False):
@@ -21,11 +61,7 @@ class BatchDistillationState(TypedDict, total=False):
     user_goal: str
 
     # ProblemStructurer output
-    problem_type: Literal[
-        "solve_D_given_W0_x0_xDavg",
-        "solve_batch_given_W0_x0_xB",
-        "unknown",
-    ]
+    problem_type: ProblemType
     knowns: dict[str, float]
     unknowns: list[str]
     needs_clarification: bool
@@ -60,20 +96,108 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
     """
     Second node.
 
-    For now, this is hardcoded for your test example.
-    Later, this becomes an LLM structured-output node.
+    Uses an LLM plus a Pydantic schema to turn the user's request into a
+    structured calculation request.
     """
-    return {
-        "problem_type": "solve_D_given_W0_x0_xDavg",
-        "knowns": {
-            "W0": 1000.0,
-            "x0": 0.05,
-            "xDavg_target": 0.20,
+    user_message = state.get("user_goal", state["user_message"])
+
+    if not os.getenv("OPENAI_API_KEY"):
+        raise RuntimeError(
+            "OPENAI_API_KEY is missing. Add it to .env before running the LLM ProblemStructurer."
+        )
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    structured_llm = llm.with_structured_output(
+        StructuredProblemRequestLLM,
+        method="function_calling",
+    )
+
+    prompt = dedent(
+        f"""
+        You are the ProblemStructurer node for a simple educational batch
+        distillation assistant.
+
+        Your job is to convert the user's request into structured data for the
+        deterministic calculation tools. Do not perform any engineering
+        calculations.
+
+        Supported problem_type values:
+        - solve_D_given_W0_x0_xDavg
+        - solve_batch_given_W0_x0_xB
+        - check_batch_consistency
+        - unknown
+
+        Interpretation rules:
+        - "5 mol%" means 0.05 mole fraction.
+        - "20 mol%" means 0.20 mole fraction.
+        - "5 mole percent" means 0.05 mole fraction.
+        - "20 mole percent" means 0.20 mole fraction.
+        - If the user says only "percent" without specifying mole percent,
+          weight percent, or volume percent, treat it as ambiguous and ask for
+          clarification.
+        - Do not treat ABV, volume percent, or weight percent as mole fraction.
+        - If enough information is missing to select and populate a supported
+          calculation, return:
+          problem_type="unknown"
+          needs_clarification=True
+          clarification_question=<concise question>
+
+        Mapping guidance:
+        - If the user gives W0, x0, and a target average distillate composition
+          and asks how much distillate can be collected, use
+          solve_D_given_W0_x0_xDavg.
+        - If the user gives W0, x0, and xB, use solve_batch_given_W0_x0_xB.
+        - If the user asks to verify consistency and provides W0, B, D, x0, xB,
+          and xDavg, use check_batch_consistency.
+
+        Keep knowns numeric. Keep unknowns as variable names. Keep the
+        clarification question concise.
+
+        Include known numeric values inside the knowns object using these field
+        names when applicable:
+        - W0
+        - x0
+        - xB
+        - xDavg_target
+        - xDavg
+        - B
+        - D
+
+        For this kind of request:
+        "I have 1000 mol of ethanol-water at 5 mol% ethanol. I want the average
+        distillate to be 20 mol% ethanol. How much distillate can I collect?"
+        the correct mapping is:
+        - problem_type = solve_D_given_W0_x0_xDavg
+        - knowns.W0 = 1000.0
+        - knowns.x0 = 0.05
+        - knowns.xDavg_target = 0.20
+        - unknowns includes D, B, and xB
+        - needs_clarification = False
+
+        User message:
+        {user_message}
+        """
+    ).strip()
+
+    structured = structured_llm.invoke(prompt)
+    structured_dict = StructuredProblemRequest(
+        problem_type=structured.problem_type,
+        knowns=structured.knowns.model_dump(exclude_none=True),
+        unknowns=structured.unknowns,
+        needs_clarification=structured.needs_clarification,
+        clarification_question=structured.clarification_question,
+    ).model_dump()
+    print(
+        "ProblemStructurer:",
+        {
+            "problem_type": structured_dict["problem_type"],
+            "knowns": structured_dict["knowns"],
+            "unknowns": structured_dict["unknowns"],
+            "needs_clarification": structured_dict["needs_clarification"],
         },
-        "unknowns": ["D", "B", "xB"],
-        "needs_clarification": False,
-        "clarification_question": None,
-    }
+    )
+
+    return structured_dict
 
 
 def validation_calculation_node(state: BatchDistillationState) -> BatchDistillationState:

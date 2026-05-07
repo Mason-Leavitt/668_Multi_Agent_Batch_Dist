@@ -1,5 +1,7 @@
 ## Current demo
 
+`OPENAI_API_KEY` must be present in `.env` for the LLM-based ProblemStructurer.
+
 Run with the project virtual environment:
 
 ```powershell

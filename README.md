@@ -2,6 +2,8 @@
 
 `OPENAI_API_KEY` must be present in `.env` for the LLM-based ProblemStructurer.
 
+`smoke_test_graph.py` now checks multiple graph paths, including two successful solve paths and one clarification path.
+
 Run with the project virtual environment:
 
 ```powershell

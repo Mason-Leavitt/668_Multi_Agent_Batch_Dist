@@ -7,9 +7,12 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 
-# Import your deterministic tool.
-# Adjust this import depending on your file names.
-from tools import solve_D_given_W0_x0_xDavg, check_batch_consistency
+# Import your deterministic tools.
+from tools import (
+    solve_batch_given_W0_x0_xB,
+    solve_D_given_W0_x0_xDavg,
+    check_batch_consistency,
+)
 
 load_dotenv()
 
@@ -174,6 +177,21 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
         - unknowns includes D, B, and xB
         - needs_clarification = False
 
+        For this kind of request:
+        "I start with 1000 mol of ethanol-water at 5 mol% ethanol and distill
+        until the still is 1 mol% ethanol. How much distillate do I collect?"
+        the correct mapping is:
+        - problem_type = solve_batch_given_W0_x0_xB
+        - knowns.W0 = 1000.0
+        - knowns.x0 = 0.05
+        - knowns.xB = 0.01
+        - unknowns includes D, B, and xDavg
+        - needs_clarification = False
+
+        If the user asks how much distillate can be collected but does not give
+        either a target average distillate composition or a final still
+        composition, ask a concise clarification question.
+
         User message:
         {user_message}
         """
@@ -226,6 +244,32 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
                 xB=result["xB"],
                 xDavg=result["xDavg"],
                 n=result["n"],
+            )
+
+            return {
+                "calculation_success": True,
+                "result": result,
+                "consistency_check": check,
+                "errors": [],
+                "warnings": [],
+            }
+
+        if problem_type == "solve_batch_given_W0_x0_xB":
+            result = solve_batch_given_W0_x0_xB(
+                W0=knowns["W0"],
+                x0=knowns["x0"],
+                xB=knowns["xB"],
+                n=100,
+            )
+
+            check = check_batch_consistency(
+                W0=result["W0"],
+                B=result["B"],
+                D=result["D"],
+                x0=result["x0"],
+                xB=result["xB"],
+                xDavg=result["xDavg"],
+                n=100,
             )
 
             return {
@@ -291,27 +335,34 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
     W0 = result["W0"]
     x0 = result["x0"]
 
-    final_answer = f"""
-For the batch distillation problem:
+    input_summary_lines = [
+        f"- Initial charge, W0 = {W0:.3f} mol",
+        f"- Initial ethanol mole fraction, x0 = {x0:.6f}",
+    ]
 
-- Initial charge, W0 = {W0:.3f} mol
-- Initial ethanol mole fraction, x0 = {x0:.6f}
-- Target average distillate ethanol mole fraction = {result["xDavg_target"]:.6f}
+    if "xDavg_target" in result:
+        input_summary_lines.append(
+            f"- Target average distillate ethanol mole fraction = {result['xDavg_target']:.6f}"
+        )
+    else:
+        input_summary_lines.append(
+            f"- Final still ethanol mole fraction target, xB = {xB:.6f}"
+        )
 
-Calculated result:
-
-- Distillate collected, D = {D:.3f} mol
-- Final still amount, B = {B:.3f} mol
-- Final still ethanol mole fraction, xB = {xB:.6f}
-- Average distillate ethanol mole fraction, xDavg = {xDavg:.6f}
-
-Consistency check:
-
-- Fully consistent: {check.get("is_fully_consistent")}
-- Total balance consistent: {check.get("is_total_balance_consistent")}
-- Component balance consistent: {check.get("is_component_balance_consistent")}
-- Rayleigh equation consistent: {check.get("is_rayleigh_consistent")}
-""".strip()
+    final_answer = (
+        "For the batch distillation problem:\n\n"
+        + "\n".join(input_summary_lines)
+        + "\n\nCalculated result:\n\n"
+        + f"- Distillate collected, D = {D:.3f} mol\n"
+        + f"- Final still amount, B = {B:.3f} mol\n"
+        + f"- Final still ethanol mole fraction, xB = {xB:.6f}\n"
+        + f"- Average distillate ethanol mole fraction, xDavg = {xDavg:.6f}\n\n"
+        + "Consistency check:\n\n"
+        + f"- Fully consistent: {check.get('is_fully_consistent')}\n"
+        + f"- Total balance consistent: {check.get('is_total_balance_consistent')}\n"
+        + f"- Component balance consistent: {check.get('is_component_balance_consistent')}\n"
+        + f"- Rayleigh equation consistent: {check.get('is_rayleigh_consistent')}"
+    )
 
     return {
         "final_answer": final_answer

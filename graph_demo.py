@@ -68,12 +68,11 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
         "knowns": {
             "W0": 1000.0,
             "x0": 0.05,
+            "xDavg_target": 0.20,
         },
-        "unknowns": ["D"],
-        "needs_clarification": True,
-        "clarification_question": (
-            "What target average distillate composition, xDavg, do you want?"
-        ),
+        "unknowns": ["D", "B", "xB"],
+        "needs_clarification": False,
+        "clarification_question": None,
     }
 
 

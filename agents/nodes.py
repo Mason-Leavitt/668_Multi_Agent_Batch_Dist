@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
+from agents.error_handling import normalize_error_for_user
 from agents.prompts import build_problem_structurer_prompt
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
@@ -243,6 +244,22 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
 
     try:
         if problem_type == "solve_D_given_W0_x0_xDavg":
+            required_keys = ("W0", "x0", "xDavg_target")
+            missing_keys = [key for key in required_keys if key not in knowns]
+            if missing_keys:
+                return {
+                    "calculation_success": False,
+                    "result": {},
+                    "consistency_check": {},
+                    "errors": [
+                        normalize_error_for_user(
+                            "missing required inputs",
+                            context={"missing_inputs": missing_keys},
+                        )
+                    ],
+                    "warnings": [],
+                }
+
             result = solve_D_given_W0_x0_xDavg(
                 W0=knowns["W0"],
                 x0=knowns["x0"],
@@ -269,6 +286,22 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
             }
 
         if problem_type == "solve_batch_given_W0_x0_xB":
+            required_keys = ("W0", "x0", "xB")
+            missing_keys = [key for key in required_keys if key not in knowns]
+            if missing_keys:
+                return {
+                    "calculation_success": False,
+                    "result": {},
+                    "consistency_check": {},
+                    "errors": [
+                        normalize_error_for_user(
+                            "missing required inputs",
+                            context={"missing_inputs": missing_keys},
+                        )
+                    ],
+                    "warnings": [],
+                }
+
             result = solve_batch_given_W0_x0_xB(
                 W0=knowns["W0"],
                 x0=knowns["x0"],
@@ -303,8 +336,10 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
                     "result": {},
                     "consistency_check": {},
                     "errors": [
-                        "Missing required inputs for check_batch_consistency: "
-                        + ", ".join(missing_keys)
+                        normalize_error_for_user(
+                            "missing required inputs",
+                            context={"missing_inputs": missing_keys},
+                        )
                     ],
                     "warnings": [],
                 }
@@ -331,7 +366,12 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
             "calculation_success": False,
             "result": {},
             "consistency_check": {},
-            "errors": [f"Unsupported problem_type: {problem_type}"],
+            "errors": [
+                normalize_error_for_user(
+                    "unsupported problem_type",
+                    context={"problem_type": "unsupported"},
+                )
+            ],
             "warnings": [],
         }
 
@@ -340,7 +380,12 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
             "calculation_success": False,
             "result": {},
             "consistency_check": {},
-            "errors": [str(exc)],
+            "errors": [
+                normalize_error_for_user(
+                    exc,
+                    context={"problem_type": problem_type},
+                )
+            ],
             "warnings": [],
         }
 
@@ -363,10 +408,11 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 
     if not state.get("calculation_success", False):
         errors = state.get("errors", [])
+        error_lines = "\n".join(f"- {error}" for error in errors) if errors else "- I could not complete the calculation."
         return {
             "final_answer": (
                 "I could not complete the calculation.\n\n"
-                f"Errors: {errors}"
+                + error_lines
             )
         }
 

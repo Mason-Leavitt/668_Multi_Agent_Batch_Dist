@@ -1,3 +1,4 @@
+from agents.error_handling import normalize_error_for_user
 from agents.graph import build_graph
 from agents.session_commands import apply_session_command, parse_session_command
 
@@ -57,7 +58,7 @@ def main() -> None:
 
             print(f"\nAssistant: {final_state['final_answer']}")
         except Exception as exc:
-            print(f"\nAssistant error: {exc}")
+            print(f"\nAssistant: {normalize_error_for_user(exc)}")
 
 
 if __name__ == "__main__":

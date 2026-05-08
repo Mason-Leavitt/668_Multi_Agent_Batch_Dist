@@ -6,6 +6,7 @@ if the API is unavailable or the model's structured-output behavior changes.
 """
 
 from agents.graph import build_graph
+from agents.nodes import validation_calculation_node
 
 HAPPY_PATH_1_MESSAGE = (
     "I have 1000 mol of ethanol-water at 5 mol% ethanol. "
@@ -49,6 +50,20 @@ def assert_result_keys(state: dict) -> None:
 
 def main() -> None:
     app = build_graph()
+
+    incomplete_direct_calc = validation_calculation_node(
+        {
+            "problem_type": "solve_D_given_W0_x0_xDavg",
+            "knowns": {"xDavg_target": 0.20},
+        }
+    )
+    assert incomplete_direct_calc["calculation_success"] is False
+    assert incomplete_direct_calc["errors"]
+    direct_error_text = incomplete_direct_calc["errors"][0].lower()
+    assert "'w0'" not in direct_error_text
+    assert "keyerror" not in direct_error_text
+    assert "initial charge amount (w0)" in direct_error_text
+    assert "initial ethanol mole fraction (x0)" in direct_error_text
 
     happy_path_1 = app.invoke({"user_message": HAPPY_PATH_1_MESSAGE})
     assert happy_path_1["problem_type"] == "solve_D_given_W0_x0_xDavg"
@@ -147,6 +162,7 @@ def main() -> None:
     assert "illustrative" in design_text or "additional design basis" in design_text
 
     print("Smoke test passed: multiple graph paths completed successfully.")
+    print(f"Incomplete direct calculation handling: {incomplete_direct_calc['errors'][0]}")
     print(
         "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
             D=happy_path_1["result"]["D"],

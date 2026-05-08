@@ -45,6 +45,8 @@ At a high level, the conversational graph is:
 
 The LLM does not perform the batch distillation calculations. Deterministic Python tools perform the Rayleigh and mole-balance calculations, and chemical engineering assumptions are intentionally limited to the current formulas and VLE lookup.
 
+The assistant also tries to return user-safe error messages. When a deterministic calculation cannot run yet, it will usually ask for more information or explain the engineering validation issue in user-facing language instead of showing raw internal errors.
+
 ## Session commands
 
 In the CLI and Streamlit chat, you can manage remembered values in the current session with simple commands:

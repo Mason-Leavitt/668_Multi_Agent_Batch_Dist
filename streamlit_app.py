@@ -1,5 +1,6 @@
 import streamlit as st
 
+from agents.error_handling import normalize_error_for_user
 from agents.graph import build_graph
 from agents.session_commands import apply_session_command, parse_session_command
 
@@ -128,7 +129,7 @@ def main() -> None:
                 st.session_state.prior_knowns = {}
                 st.session_state.prior_clarification_question = None
     except Exception as exc:
-        assistant_message = f"Assistant error: {exc}"
+        assistant_message = normalize_error_for_user(exc)
 
     st.session_state.messages.append({"role": "assistant", "content": assistant_message})
     with st.chat_message("assistant"):

@@ -33,6 +33,7 @@ def main() -> None:
             clarification_question = final_state.get("clarification_question")
 
             if not awaiting_clarification and final_state.get("intent_type") not in {
+                "design_prototyping",
                 "open_ended_guidance",
                 "underdetermined_design",
                 "conceptual_question",

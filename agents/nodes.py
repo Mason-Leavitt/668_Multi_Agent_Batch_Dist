@@ -9,6 +9,7 @@ from agents.state import BatchDistillationState
 from agents.workflows import SUPPORTED_WORKFLOWS, VARIABLE_DESCRIPTIONS
 from engineering.tools import (
     check_batch_consistency,
+    prototype_design_given_D_xDavg,
     solve_batch_given_W0_x0_xB,
     solve_D_given_W0_x0_xDavg,
 )
@@ -173,6 +174,55 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
         + "\n".join(workflow_lines)
         + "\n\n"
         + question
+    )
+
+    return {
+        "guidance_response": final_answer,
+        "final_answer": final_answer,
+        }
+
+
+def design_prototype_node(state: BatchDistillationState) -> BatchDistillationState:
+    knowns = state.get("knowns", {})
+    D_target = knowns.get("D")
+    xDavg_target = knowns.get("xDavg_target", knowns.get("xDavg"))
+
+    if D_target is None or xDavg_target is None:
+        final_answer = (
+            "I can prototype illustrative design scenarios, but I still need both a target distillate amount D "
+            "and a target average distillate composition xDavg to do that."
+        )
+        return {
+            "guidance_response": final_answer,
+            "final_answer": final_answer,
+        }
+
+    prototype = prototype_design_given_D_xDavg(
+        D_target=D_target,
+        xDavg_target=xDavg_target,
+        n=100,
+    )
+
+    scenario_lines = []
+    for scenario in prototype["scenarios"]:
+        scenario_lines.append(
+            "x0={x0:.4f}, xB={xB:.4f} -> W0={W0:.3f} mol, B={B:.3f} mol, "
+            "Rayleigh consistent={is_rayleigh_consistent}, Fully consistent={is_fully_consistent}".format(
+                **scenario
+            )
+        )
+
+    if not scenario_lines:
+        scenario_lines.append("No illustrative scenarios passed the current feasibility and consistency checks.")
+
+    final_answer = (
+        "Your request is underdetermined, so D_target and xDavg_target alone do not uniquely determine W0 and x0.\n\n"
+        f"You already specified:\n- target distillate amount D = {D_target:.3f} mol\n"
+        f"- target average distillate composition xDavg = {xDavg_target:.6f}\n\n"
+        "To help you choose a design basis, here are a few illustrative scenarios using example x0 and xB values:\n"
+        + "\n".join(f"- {line}" for line in scenario_lines)
+        + "\n\nThese are illustrative scenarios, not final design recommendations.\n"
+        + "To finalize the design, choose either the actual feed composition x0 or a target final still composition xB."
     )
 
     return {
@@ -378,6 +428,9 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
+
+    if intent_type == "design_prototyping":
+        return "design_prototype"
 
     if intent_type in {"open_ended_guidance", "underdetermined_design", "conceptual_question"}:
         return "guidance_responder"

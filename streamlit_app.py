@@ -101,7 +101,12 @@ def main() -> None:
 
         if not st.session_state.prior_needs_clarification and final_state.get(
             "intent_type"
-        ) not in {"open_ended_guidance", "underdetermined_design", "conceptual_question"}:
+        ) not in {
+            "design_prototyping",
+            "open_ended_guidance",
+            "underdetermined_design",
+            "conceptual_question",
+        }:
             st.session_state.prior_knowns = {}
             st.session_state.prior_clarification_question = None
     except Exception as exc:

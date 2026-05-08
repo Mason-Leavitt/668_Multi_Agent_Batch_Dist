@@ -30,6 +30,10 @@ UNDERDETERMINED_DESIGN_MESSAGE = (
     "at a 0.2 ethanol mole fraction. How do I set up the still?"
 )
 UNDERDETERMINED_DESIGN_FOLLOWUP_MESSAGE = "I don't know, how much would I need?"
+DESIGN_PROTOTYPING_MESSAGE = (
+    "I want a distillate of 50 moles at a 0.2 mole fraction of ethanol. "
+    "How much initial mole mixture do I need and at what mole fraction?"
+)
 
 
 def assert_result_keys(state: dict) -> None:
@@ -107,6 +111,19 @@ def main() -> None:
     assert "xb" in followup_text or "final still composition" in followup_text
     assert "what is w0" not in followup_text
 
+    design_prototyping = app.invoke({"user_message": DESIGN_PROTOTYPING_MESSAGE})
+    assert "final_answer" in design_prototyping
+    assert design_prototyping["final_answer"].strip()
+    design_text = design_prototyping["final_answer"].lower()
+    assert (
+        design_prototyping.get("intent_type") == "design_prototyping"
+        or "illustrative scenarios" in design_text
+    )
+    assert "underdetermined" in design_text
+    assert "x0=" in design_text or "x0 =" in design_text
+    assert "w0=" in design_text or "w0 =" in design_text
+    assert "final design recommendations" in design_text or "illustrative" in design_text
+
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(
         "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
@@ -136,6 +153,7 @@ def main() -> None:
     print(f"Open-ended guidance: {open_ended_guidance['final_answer']}")
     print(f"Underdetermined design: {underdetermined_design['final_answer']}")
     print(f"Underdetermined follow-up: {underdetermined_followup['final_answer']}")
+    print(f"Design prototyping: {design_prototyping['final_answer']}")
 
 
 if __name__ == "__main__":

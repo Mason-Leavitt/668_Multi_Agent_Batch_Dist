@@ -194,6 +194,93 @@ def check_batch_consistency(
     }
 
 
+def prototype_design_given_D_xDavg(
+    D_target: float,
+    xDavg_target: float,
+    x0_options: list[float] | None = None,
+    xB_options: list[float] | None = None,
+    n: int = 100,
+) -> dict:
+    f.validate_positive(D_target, "D_target")
+    f.validate_mole_fraction(xDavg_target, "xDavg_target")
+
+    if x0_options is None:
+        x0_options = [0.05, 0.10, 0.15]
+
+    if xB_options is None:
+        xB_options = [0.0025, 0.005, 0.01]
+
+    scenarios = []
+    notes = []
+
+    for x0 in x0_options:
+        f.validate_mole_fraction(x0, "x0_option")
+        for xB in xB_options:
+            f.validate_mole_fraction(xB, "xB_option")
+
+            if xB >= x0:
+                notes.append(
+                    f"Skipped invalid illustrative pair x0={x0:.6f}, xB={xB:.6f} because xB must be less than x0."
+                )
+                continue
+
+            denominator = x0 - xB
+            if denominator == 0:
+                notes.append(
+                    f"Skipped illustrative pair x0={x0:.6f}, xB={xB:.6f} because the design equation denominator is zero."
+                )
+                continue
+
+            W0 = D_target * (xDavg_target - xB) / denominator
+            B = W0 - D_target
+
+            if W0 <= D_target or B <= 0:
+                notes.append(
+                    f"Skipped illustrative pair x0={x0:.6f}, xB={xB:.6f} because it produced non-physical W0={W0:.6f} or B={B:.6f}."
+                )
+                continue
+
+            try:
+                check = check_batch_consistency(
+                    W0=W0,
+                    B=B,
+                    D=D_target,
+                    x0=x0,
+                    xB=xB,
+                    xDavg=xDavg_target,
+                    n=n,
+                )
+                scenarios.append(
+                    {
+                        "x0": x0,
+                        "xB": xB,
+                        "W0": W0,
+                        "B": B,
+                        "D": D_target,
+                        "xDavg_target": xDavg_target,
+                        "is_fully_consistent": check["is_fully_consistent"],
+                        "is_total_balance_consistent": check["is_total_balance_consistent"],
+                        "is_component_balance_consistent": check["is_component_balance_consistent"],
+                        "is_rayleigh_consistent": check["is_rayleigh_consistent"],
+                        "rayleigh_error": check["rayleigh_error"],
+                    }
+                )
+            except Exception as exc:
+                notes.append(
+                    f"Skipped illustrative pair x0={x0:.6f}, xB={xB:.6f} because the consistency check failed: {exc}"
+                )
+
+    return {
+        "D_target": D_target,
+        "xDavg_target": xDavg_target,
+        "x0_options": x0_options,
+        "xB_options": xB_options,
+        "scenarios": scenarios,
+        "notes": notes,
+        "is_illustrative_only": True,
+    }
+
+
 if __name__ == "__main__":
     result = solve_D_given_W0_x0_xDavg(
         W0=1000.0,

@@ -65,6 +65,12 @@ Underdetermined design request
   `"I want to produce about 50 moles of ethanol-water mixture distillate at a 0.2 ethanol mole fraction. How do I set up the still?"`
 - The assistant can summarize the provided targets, explain that the request is still underdetermined, and ask for a useful next design basis such as `x0` or `xB`.
 
+Design prototyping request
+
+- Example prompt:
+  `"I want a distillate of 50 moles at a 0.2 mole fraction of ethanol. How much initial mole mixture do I need and at what mole fraction?"`
+- The assistant can prototype illustrative scenarios for underdetermined design requests and show example `W0`, `B`, `x0`, and `xB` combinations before the user chooses a final design basis.
+
 Project structure:
 
 ```text

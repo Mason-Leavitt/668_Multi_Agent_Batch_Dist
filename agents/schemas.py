@@ -12,6 +12,7 @@ ProblemType = Literal[
 IntentType = Literal[
     "calculation_request",
     "open_ended_guidance",
+    "design_prototyping",
     "underdetermined_design",
     "clarification_answer",
     "conceptual_question",

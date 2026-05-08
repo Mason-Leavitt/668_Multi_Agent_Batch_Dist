@@ -29,6 +29,7 @@ def build_problem_structurer_prompt(
         Supported intent_type values:
         - calculation_request
         - open_ended_guidance
+        - design_prototyping
         - underdetermined_design
         - clarification_answer
         - conceptual_question
@@ -60,6 +61,9 @@ def build_problem_structurer_prompt(
         - Reuse prior knowns when they are still relevant.
         - If the user is vague and wants help getting started, classify it as
           open_ended_guidance rather than forcing it into a calculation.
+        - If the user specifies a desired product amount and composition but asks
+          how to choose the initial charge or feed setup, classify it as
+          design_prototyping.
         - If the user specifies target outputs such as a desired distillate amount
           or target composition but does not provide enough design basis to run a
           supported calculation, classify it as underdetermined_design.
@@ -73,6 +77,9 @@ def build_problem_structurer_prompt(
         - If the user gives W0, x0, and xB, use solve_batch_given_W0_x0_xB.
         - If the user asks to verify consistency and provides W0, B, D, x0, xB,
           and xDavg, use check_batch_consistency.
+        - If the user gives a target distillate amount D and target average
+          distillate composition xDavg_target, but asks how much initial mixture
+          is needed or what feed composition to choose, use design_prototyping.
         - If the user is answering a previous clarification question with a short
           follow-up that supplies a missing value, use clarification_answer.
         - If the user says something like "I don't know where to start" or asks
@@ -126,6 +133,28 @@ def build_problem_structurer_prompt(
         - intent_type = open_ended_guidance
         - problem_type = unknown
         - needs_clarification = False
+
+        For this kind of request:
+        "I want to produce about 50 moles of distillate at a 0.2 ethanol mole
+        fraction. How do I set up the still?"
+        the correct mapping is:
+        - intent_type = design_prototyping
+        - problem_type = unknown
+        - knowns.D = 50.0
+        - knowns.xDavg_target = 0.20
+        - needs_clarification = False
+        - do not force this into an immediate calculation request
+
+        For this kind of request:
+        "I want a distillate of 50 moles at a 0.2 mole fraction of ethanol.
+        How much initial mole mixture do I need and at what mole fraction?"
+        the correct mapping is:
+        - intent_type = design_prototyping
+        - problem_type = unknown
+        - knowns.D = 50.0
+        - knowns.xDavg_target = 0.20
+        - needs_clarification = False
+        - do not ask only for W0 if illustrative scenario guidance is possible
 
         For this kind of request:
         "I want to produce about 50 moles of distillate at a 0.2 ethanol mole

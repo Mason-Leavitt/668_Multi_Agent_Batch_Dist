@@ -108,6 +108,7 @@ def main() -> None:
     underdetermined_design = app.invoke({"user_message": UNDERDETERMINED_DESIGN_MESSAGE})
     assert "final_answer" in underdetermined_design
     assert underdetermined_design["final_answer"].strip()
+    assert underdetermined_design.get("intent_type") == "design_prototyping"
     underdetermined_text = underdetermined_design["final_answer"].lower()
     assert "50" in underdetermined_design["final_answer"]
     assert "0.2" in underdetermined_design["final_answer"]
@@ -139,10 +140,7 @@ def main() -> None:
     assert "final_answer" in design_prototyping
     assert design_prototyping["final_answer"].strip()
     design_text = design_prototyping["final_answer"].lower()
-    assert (
-        design_prototyping.get("intent_type") == "design_prototyping"
-        or "relevant supported workflows" in design_text
-    )
+    assert design_prototyping.get("intent_type") == "design_prototyping"
     assert "underdetermined" in design_text
     assert "x0" in design_text
     assert "xb" in design_text or "final still composition" in design_text

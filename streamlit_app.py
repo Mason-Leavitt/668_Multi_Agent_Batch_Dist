@@ -104,7 +104,6 @@ def main() -> None:
         ) not in {
             "design_prototyping",
             "open_ended_guidance",
-            "underdetermined_design",
             "conceptual_question",
         }:
             st.session_state.prior_knowns = {}

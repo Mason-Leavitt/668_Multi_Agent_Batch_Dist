@@ -176,7 +176,7 @@ def recommend_next_design_basis(
 
     if "D" in knowns and "xDavg_target" in knowns and "W0" not in knowns and "x0" not in knowns:
         return {
-            "status": "underdetermined_design",
+            "status": "design_prototyping",
             "recommended_next_question": (
                 "Do you know either the initial feed composition x0 or the final still composition xB you want to reach?"
             ),

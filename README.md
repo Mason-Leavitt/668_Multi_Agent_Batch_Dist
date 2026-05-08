@@ -24,12 +24,22 @@ Do not rely on an arbitrary system Python unless the same dependencies are insta
 
 ## Architecture
 
-The assistant uses a simple four-node LangGraph workflow:
+The assistant uses a LangGraph workflow with a shared deterministic calculation core:
 
 - `Face`: receives the user request.
 - `ProblemStructurer`: uses the LLM to turn the request into a structured calculation request.
-- `ValidationCalculation`: calls deterministic Python engineering tools.
-- `ResultExplainer`: formats the result or clarification response for the user.
+- Then the graph routes to one of:
+  - `ValidationCalculation` for ready deterministic calculations
+  - `DesignAdvisor` for partial-knowns, underdetermined design requests, and illustrative scenario guidance
+  - `GuidanceResponder` for broad orientation, conceptual help, and unsupported requests
+- `ResultExplainer`: formats deterministic calculation results for the user.
+
+`GuidanceResponder` answers broad "what can you do?" or "what does this variable mean?" questions.
+`DesignAdvisor` helps the user move from partial knowns or vague design goals toward one of the supported deterministic workflows.
+
+At a high level, the conversational graph is:
+
+`Face -> ProblemStructurer -> route to ValidationCalculation, DesignAdvisor, or GuidanceResponder -> ResultExplainer when a deterministic calculation runs`
 
 ## Engineering boundary
 

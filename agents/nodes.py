@@ -80,75 +80,15 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
 
 
 def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationState:
+    """
+    Handles broad orientation, conceptual help, and unsupported requests.
+    """
     workflow_lines = []
     for workflow in SUPPORTED_WORKFLOWS.values():
         workflow_lines.append(
             f"- {workflow['label']}: {workflow['description']} "
             f"Required inputs: {', '.join(workflow['required_inputs'])}."
         )
-
-    knowns = state.get("knowns", {})
-    intent_type = state.get("intent_type")
-    user_message = state.get("user_message", "").lower()
-
-    if intent_type == "underdetermined_design":
-        x0_description = VARIABLE_DESCRIPTIONS["x0"]
-        xB_description = VARIABLE_DESCRIPTIONS["xB"]
-        W0_description = VARIABLE_DESCRIPTIONS["W0"]
-        provided_lines = []
-        if "D" in knowns:
-            provided_lines.append(f"- target distillate amount D = {knowns['D']:.3f} mol")
-        if "xDavg_target" in knowns:
-            provided_lines.append(
-                f"- target average distillate composition xDavg = {knowns['xDavg_target']:.6f}"
-            )
-        if "xDavg" in knowns and "xDavg_target" not in knowns:
-            provided_lines.append(
-                f"- target average distillate composition xDavg = {knowns['xDavg']:.6f}"
-            )
-        if "x0" in knowns:
-            provided_lines.append(
-                f"- initial ethanol mole fraction x0 = {knowns['x0']:.6f}"
-            )
-        if "W0" in knowns:
-            provided_lines.append(f"- available initial charge W0 = {knowns['W0']:.3f} mol")
-
-        next_question = "Do you know the ethanol mole fraction x0 of the starting mixture?"
-        if "x0" in knowns and "xB" not in knowns:
-            next_question = (
-                "Do you know the final still composition xB you are willing to run down to?"
-            )
-        elif "x0" in knowns and "xB" in knowns:
-            next_question = (
-                "If you want, I can use W0, x0, and xB in the supported final-still-composition workflow."
-            )
-
-        summary = "You already specified:\n" + "\n".join(provided_lines) if provided_lines else ""
-        underdetermined_explanation = (
-            "To determine the required initial charge W0, I need one more design basis."
-        )
-        options = (
-            "A simple batch Rayleigh calculation also needs something like:\n"
-            f"1. the {x0_description} x0, if you know what feed you are starting with;\n"
-            f"2. the {xB_description} xB, if you know how depleted you are willing to run the still;\n"
-            f"3. or an available {W0_description} W0, if you want to calculate what distillate amount is possible."
-        )
-
-        final_answer = (
-            underdetermined_explanation
-            + "\n\n"
-            + summary
-            + "\n\n"
-            + options
-            + "\n\n"
-            + "For your case, the most natural next input is the initial ethanol mole fraction x0 of the feed.\n"
-            + next_question
-        ).strip()
-
-        return {
-            "guidance_response": final_answer,
-            "final_answer": final_answer,
-        }
 
     if state.get("needs_clarification", False):
         intro = (
@@ -187,10 +127,11 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
 
 
 def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState:
+    """
+    Handles partial-knowns design guidance and illustrative scenario exploration.
+    """
     knowns = state.get("knowns", {})
     unknowns = state.get("unknowns", [])
-    user_message = state.get("user_message", "")
-    intent_type = state.get("intent_type")
 
     analysis = analyze_knowns_against_workflows(
         knowns=knowns,
@@ -222,10 +163,6 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     elif "D" in knowns and "xDavg_target" in knowns and "W0" not in knowns and "x0" not in knowns:
         status_intro = (
             "Your request is still underdetermined: D and xDavg_target alone do not uniquely determine W0 and x0."
-        )
-    elif intent_type == "open_ended_guidance":
-        status_intro = (
-            "I can help you choose a supported batch distillation workflow and the next inputs to provide."
         )
     else:
         status_intro = (
@@ -493,14 +430,21 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
 
-    if intent_type in {"design_prototyping", "underdetermined_design", "open_ended_guidance"}:
+    # Partial-knowns and underdetermined design requests go to the design advisor.
+    if intent_type == "design_prototyping":
         return "design_advisor"
 
-    if intent_type == "conceptual_question":
+    # Broad orientation, conceptual help, and unsupported requests go to guidance.
+    if intent_type in {"open_ended_guidance", "conceptual_question", "unknown"}:
         return "guidance_responder"
 
+    # Clarification requests still need a user-facing guidance response.
     if state.get("needs_clarification", False):
         return "guidance_responder"
+
+    # Ready calculation requests continue to deterministic validation.
+    if intent_type in {"calculation_request", "clarification_answer"}:
+        return "validation_calculation"
 
     if state.get("problem_type") == "unknown":
         return "guidance_responder"

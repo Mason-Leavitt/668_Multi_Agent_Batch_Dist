@@ -30,7 +30,6 @@ def build_problem_structurer_prompt(
         - calculation_request
         - open_ended_guidance
         - design_prototyping
-        - underdetermined_design
         - clarification_answer
         - conceptual_question
         - unknown
@@ -42,6 +41,15 @@ def build_problem_structurer_prompt(
         - unknown
 
         Interpretation rules:
+        - calculation_request means the user has enough information for a
+          supported deterministic calculation or is clearly trying to complete one.
+        - open_ended_guidance means the user is asking broad orientation questions
+          such as how to start, what the assistant can do, or what information matters.
+        - design_prototyping means the user has a partial, vague, or underdetermined
+          design goal and needs help choosing a design basis or exploring options.
+        - conceptual_question means the user is asking what a variable or concept means.
+        - clarification_answer means the user is answering a previous clarification question.
+        - unknown means the request is unsupported, outside scope, or still too unclear.
         - "5 mol%" means 0.05 mole fraction.
         - "20 mol%" means 0.20 mole fraction.
         - "5 mole percent" means 0.05 mole fraction.
@@ -67,9 +75,6 @@ def build_problem_structurer_prompt(
         - If the user specifies a desired product amount and composition but asks
           how to choose the initial charge or feed setup, classify it as
           design_prototyping.
-        - If the user specifies target outputs such as a desired distillate amount
-          or target composition but does not provide enough design basis to run a
-          supported calculation, classify it as underdetermined_design.
         - If the user asks what a variable means, classify it as
           conceptual_question.
 
@@ -92,8 +97,7 @@ def build_problem_structurer_prompt(
           design_prototyping and preserve any known numeric values.
         - If the user asks for a design target like "I want 50 mol of distillate
           at xDavg=0.2" but does not provide enough information to calculate it,
-          use design_prototyping or underdetermined_design instead of a ready
-          calculation request.
+          use design_prototyping instead of a ready calculation request.
         - If the user asks for something outside the supported project, use unknown.
 
         Keep knowns numeric. Keep unknowns as variable names. Keep the
@@ -199,21 +203,9 @@ def build_problem_structurer_prompt(
         - needs_clarification = False
         - do not ask only for W0 if illustrative scenario guidance is possible
 
-        For this kind of request:
-        "I want to produce about 50 moles of distillate at a 0.2 ethanol mole
-        fraction. How do I set up the still?"
-        the correct mapping is:
-        - intent_type = underdetermined_design
-        - problem_type = unknown
-        - knowns.D = 50.0
-        - knowns.xDavg_target = 0.20
-        - needs_clarification = False
-        - do not ask only for W0 if a more useful design-basis explanation is needed
-
         If the user replies with something like "I don't know, how much would I
         need?" after being asked for W0, keep the existing knowns and classify it
-        as design_prototyping or underdetermined_design rather than repeating the
-        same W0 question.
+        as design_prototyping rather than repeating the same W0 question.
 
         If prior knowns include W0 and x0, and the new user message supplies a
         target average distillate composition, use solve_D_given_W0_x0_xDavg.

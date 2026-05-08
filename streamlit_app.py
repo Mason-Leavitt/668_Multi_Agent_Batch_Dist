@@ -33,16 +33,33 @@ def main() -> None:
 
     st.title("Batch Distillation Assistant")
     st.write(
-        "A simple LangGraph multi-agent assistant using deterministic engineering tools."
+        "Use this agent to plan and solve batch distillation unit ops."
     )
 
     with st.sidebar:
         st.button("Reset conversation", on_click=reset_conversation, use_container_width=True)
+        st.subheader("Workflow")
+        st.markdown(
+            "- `Face`\n"
+            "- `ProblemStructurer`\n"
+            "- `ValidationCalculation`\n"
+            "- `ResultExplainer`"
+        )
+        st.caption(
+            "The LLM structures the problem, but deterministic Python tools perform the calculations."
+        )
         with st.expander("Remembered knowns", expanded=True):
             st.json(st.session_state.prior_knowns or {})
         if st.session_state.prior_needs_clarification:
             st.caption(
                 f"Waiting for clarification: {st.session_state.prior_clarification_question}"
+            )
+        with st.expander("Example prompts", expanded=False):
+            st.markdown(
+                '- "I have 1000 mol of ethanol-water at 5 mol% ethanol. I want the average distillate to be 20 mol% ethanol. How much distillate can I collect?"'
+            )
+            st.markdown(
+                '- "I start with 1000 mol of ethanol-water at 5 mol% ethanol and distill until the still is 1 mol% ethanol. How much distillate do I collect?"'
             )
 
     for message in st.session_state.messages:

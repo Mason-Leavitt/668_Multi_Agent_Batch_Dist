@@ -9,5 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# UI
+streamlit_startup.err.log
+streamlit_startup.log
+
 # Misc
 .env

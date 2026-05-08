@@ -4,6 +4,19 @@
 
 `smoke_test_graph.py` now checks multiple graph paths, including two successful solve paths and one clarification path.
 
+## Architecture
+
+The assistant uses a simple four-node LangGraph workflow:
+
+- `Face`: receives the user request.
+- `ProblemStructurer`: uses the LLM to turn the request into a structured calculation request.
+- `ValidationCalculation`: calls deterministic Python engineering tools.
+- `ResultExplainer`: formats the result or clarification response for the user.
+
+## Engineering boundary
+
+The LLM does not perform the batch distillation calculations. Deterministic Python tools perform the Rayleigh and mole-balance calculations, and chemical engineering assumptions are intentionally limited to the current formulas and VLE lookup.
+
 Project structure:
 
 ```text

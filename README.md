@@ -2,7 +2,7 @@
 
 `OPENAI_API_KEY` must be present in `.env` for the LLM-based ProblemStructurer.
 
-`smoke_test_graph.py` now checks multiple graph paths, including two successful solve paths and one clarification path.
+`smoke_test_graph.py` is an LLM-integration smoke test that checks multiple graph paths, including successful solve paths and a clarification path.
 
 ## Setup
 
@@ -10,6 +10,15 @@
 2. Create a `.env` file in the project root.
 3. Add `OPENAI_API_KEY=...` to `.env`.
 4. Make sure OpenAI API access, internet access, and available API quota are present before running the graph-based demos.
+
+Use the `uv`-managed environment when running the project. For example:
+
+```powershell
+.venv\Scripts\python.exe .\graph_demo.py
+uv run python .\graph_demo.py
+```
+
+Do not rely on an arbitrary system Python unless the same dependencies are installed there.
 
 `graph_demo.py`, `chat_cli.py`, `streamlit_app.py`, and the current `smoke_test_graph.py` all require live OpenAI access.
 
@@ -25,6 +34,24 @@ The assistant uses a simple four-node LangGraph workflow:
 ## Engineering boundary
 
 The LLM does not perform the batch distillation calculations. Deterministic Python tools perform the Rayleigh and mole-balance calculations, and chemical engineering assumptions are intentionally limited to the current formulas and VLE lookup.
+
+## Supported workflow examples
+
+`solve_D_given_W0_x0_xDavg`
+
+- Example prompt:
+  `"I have 1000 mol of ethanol-water at 5 mol% ethanol. I want the average distillate to be 20 mol% ethanol. How much distillate can I collect?"`
+
+`solve_batch_given_W0_x0_xB`
+
+- Example prompt:
+  `"I start with 1000 mol of ethanol-water at 5 mol% ethanol and distill until the still is 1 mol% ethanol. How much distillate do I collect?"`
+
+`check_batch_consistency`
+
+- Example prompt:
+  `"Check whether this batch result is consistent: W0=1000 mol, B=763.986 mol, D=236.014 mol, x0=0.05, xB=0.003661, and xDavg=0.20."`
+- This path checks total mole balance, ethanol component balance, and Rayleigh consistency.
 
 Project structure:
 

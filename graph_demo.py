@@ -1,3 +1,8 @@
+"""
+Minimal one-shot demo of the LangGraph workflow:
+Face -> ProblemStructurer -> ValidationCalculation -> ResultExplainer.
+"""
+
 from agents.graph import build_graph
 
 

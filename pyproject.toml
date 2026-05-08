@@ -11,4 +11,5 @@ dependencies = [
     "phasepy>=0.0.56",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
+    "streamlit>=1.57.0",
 ]

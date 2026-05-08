@@ -20,6 +20,7 @@ Run with the project virtual environment:
 .venv\Scripts\python.exe .\graph_demo.py
 .venv\Scripts\python.exe .\smoke_test_graph.py
 .venv\Scripts\python.exe .\chat_cli.py
+.venv\Scripts\streamlit.exe run .\streamlit_app.py
 ```
 
 If you use `uv`, you can also run:
@@ -28,4 +29,5 @@ If you use `uv`, you can also run:
 uv run python .\graph_demo.py
 uv run python .\smoke_test_graph.py
 uv run python .\chat_cli.py
+uv run streamlit run .\streamlit_app.py
 ```

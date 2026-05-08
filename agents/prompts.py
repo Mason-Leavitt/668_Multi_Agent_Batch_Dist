@@ -61,6 +61,9 @@ def build_problem_structurer_prompt(
         - Reuse prior knowns when they are still relevant.
         - If the user is vague and wants help getting started, classify it as
           open_ended_guidance rather than forcing it into a calculation.
+        - If the user provides only part of a design basis and asks what they
+          can do next, prefers help choosing targets, or asks how to set up the
+          calculation, classify it as design_prototyping.
         - If the user specifies a desired product amount and composition but asks
           how to choose the initial charge or feed setup, classify it as
           design_prototyping.
@@ -84,9 +87,13 @@ def build_problem_structurer_prompt(
           follow-up that supplies a missing value, use clarification_answer.
         - If the user says something like "I don't know where to start" or asks
           for help choosing an approach, use open_ended_guidance.
+        - If the user says something like "I have 1000 mol, what can I do?" or
+          "I have 1000 mol at 5 mol% ethanol, help me choose targets", use
+          design_prototyping and preserve any known numeric values.
         - If the user asks for a design target like "I want 50 mol of distillate
           at xDavg=0.2" but does not provide enough information to calculate it,
-          use underdetermined_design.
+          use design_prototyping or underdetermined_design instead of a ready
+          calculation request.
         - If the user asks for something outside the supported project, use unknown.
 
         Keep knowns numeric. Keep unknowns as variable names. Keep the
@@ -128,10 +135,46 @@ def build_problem_structurer_prompt(
         either a target average distillate composition or a final still
         composition, ask a concise clarification question.
 
+        For this kind of request:
+        "I have 1000 mol of ethanol-water at 5 mol% ethanol. How much distillate
+        can I collect?"
+        the correct mapping is:
+        - intent_type = calculation_request
+        - problem_type = unknown
+        - knowns.W0 = 1000.0
+        - knowns.x0 = 0.05
+        - needs_clarification = True
+        - clarification_question asks for either xDavg_target or xB
+        - do not classify this as design_prototyping
+
         If the user says something like "I don't know where to start but I want
         to conduct a distillation", classify it as:
         - intent_type = open_ended_guidance
         - problem_type = unknown
+        - needs_clarification = False
+
+        If the user says:
+        "How do I start?"
+        the correct mapping is:
+        - intent_type = open_ended_guidance
+        - problem_type = unknown
+        - needs_clarification = False
+
+        If the user says:
+        "I have 1000 mol, what can I do?"
+        the correct mapping is:
+        - intent_type = design_prototyping
+        - problem_type = unknown
+        - knowns.W0 = 1000.0
+        - needs_clarification = False
+
+        If the user says:
+        "I have 1000 mol at 5 mol% ethanol, help me choose targets."
+        the correct mapping is:
+        - intent_type = design_prototyping
+        - problem_type = unknown
+        - knowns.W0 = 1000.0
+        - knowns.x0 = 0.05
         - needs_clarification = False
 
         For this kind of request:
@@ -169,7 +212,8 @@ def build_problem_structurer_prompt(
 
         If the user replies with something like "I don't know, how much would I
         need?" after being asked for W0, keep the existing knowns and classify it
-        as underdetermined_design rather than repeating the same W0 question.
+        as design_prototyping or underdetermined_design rather than repeating the
+        same W0 question.
 
         If prior knowns include W0 and x0, and the new user message supplies a
         target average distillate composition, use solve_D_given_W0_x0_xDavg.

@@ -25,6 +25,8 @@ CLARIFICATION_PATH_MESSAGE = (
 
 CLARIFICATION_FOLLOWUP_MESSAGE = "20 mol% average distillate."
 OPEN_ENDED_GUIDANCE_MESSAGE = "I don't know where to start but I want to conduct a distillation."
+HOW_DO_I_START_MESSAGE = "How do I start?"
+PARTIAL_KNOWNS_TARGETS_MESSAGE = "I have 1000 mol at 5 mol% ethanol, help me choose targets."
 UNDERDETERMINED_DESIGN_MESSAGE = (
     "I want to produce about 50 moles of ethanol-water mixture distillate "
     "at a 0.2 ethanol mole fraction. How do I set up the still?"
@@ -86,6 +88,23 @@ def main() -> None:
     assert "average distillate" in guidance_text
     assert "final still" in guidance_text
 
+    how_do_i_start = app.invoke({"user_message": HOW_DO_I_START_MESSAGE})
+    assert "final_answer" in how_do_i_start
+    assert how_do_i_start["final_answer"].strip()
+    how_to_start_text = how_do_i_start["final_answer"].lower()
+    assert "workflow" in how_to_start_text or "target average distillate" in how_to_start_text
+    assert "w0" in how_to_start_text
+    assert "x0" in how_to_start_text
+
+    partial_knowns_targets = app.invoke({"user_message": PARTIAL_KNOWNS_TARGETS_MESSAGE})
+    assert "final_answer" in partial_knowns_targets
+    assert partial_knowns_targets["final_answer"].strip()
+    partial_text = partial_knowns_targets["final_answer"].lower()
+    assert "w0" in partial_text and "1000.000" in partial_knowns_targets["final_answer"]
+    assert "x0" in partial_text and "0.050000" in partial_knowns_targets["final_answer"]
+    assert "illustrative" in partial_text or "target-average-distillate" in partial_text
+    assert "xdavg_target" in partial_text or "xb" in partial_text
+
     underdetermined_design = app.invoke({"user_message": UNDERDETERMINED_DESIGN_MESSAGE})
     assert "final_answer" in underdetermined_design
     assert underdetermined_design["final_answer"].strip()
@@ -106,7 +125,12 @@ def main() -> None:
     assert "final_answer" in underdetermined_followup
     assert underdetermined_followup["final_answer"].strip()
     followup_text = underdetermined_followup["final_answer"].lower()
-    assert "cannot" in followup_text or "need one more design basis" in followup_text
+    assert (
+        "cannot" in followup_text
+        or "need one more design basis" in followup_text
+        or "underdetermined" in followup_text
+        or "do not uniquely determine" in followup_text
+    )
     assert "x0" in followup_text or "initial ethanol mole fraction" in followup_text
     assert "xb" in followup_text or "final still composition" in followup_text
     assert "what is w0" not in followup_text
@@ -117,12 +141,12 @@ def main() -> None:
     design_text = design_prototyping["final_answer"].lower()
     assert (
         design_prototyping.get("intent_type") == "design_prototyping"
-        or "illustrative scenarios" in design_text
+        or "relevant supported workflows" in design_text
     )
     assert "underdetermined" in design_text
-    assert "x0=" in design_text or "x0 =" in design_text
-    assert "w0=" in design_text or "w0 =" in design_text
-    assert "final design recommendations" in design_text or "illustrative" in design_text
+    assert "x0" in design_text
+    assert "xb" in design_text or "final still composition" in design_text
+    assert "illustrative" in design_text or "additional design basis" in design_text
 
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(
@@ -151,6 +175,8 @@ def main() -> None:
         )
     )
     print(f"Open-ended guidance: {open_ended_guidance['final_answer']}")
+    print(f"How do I start: {how_do_i_start['final_answer']}")
+    print(f"Partial knowns guidance: {partial_knowns_targets['final_answer']}")
     print(f"Underdetermined design: {underdetermined_design['final_answer']}")
     print(f"Underdetermined follow-up: {underdetermined_followup['final_answer']}")
     print(f"Design prototyping: {design_prototyping['final_answer']}")

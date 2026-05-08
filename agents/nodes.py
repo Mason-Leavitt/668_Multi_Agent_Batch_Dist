@@ -6,10 +6,14 @@ from langchain_openai import ChatOpenAI
 from agents.prompts import build_problem_structurer_prompt
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
-from agents.workflows import SUPPORTED_WORKFLOWS, VARIABLE_DESCRIPTIONS
+from agents.workflows import (
+    SUPPORTED_WORKFLOWS,
+    VARIABLE_DESCRIPTIONS,
+    analyze_knowns_against_workflows,
+    prototype_supported_scenarios,
+)
 from engineering.tools import (
     check_batch_consistency,
-    prototype_design_given_D_xDavg,
     solve_batch_given_W0_x0_xB,
     solve_D_given_W0_x0_xDavg,
 )
@@ -182,48 +186,108 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
         }
 
 
-def design_prototype_node(state: BatchDistillationState) -> BatchDistillationState:
+def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState:
     knowns = state.get("knowns", {})
-    D_target = knowns.get("D")
-    xDavg_target = knowns.get("xDavg_target", knowns.get("xDavg"))
+    unknowns = state.get("unknowns", [])
+    user_message = state.get("user_message", "")
+    intent_type = state.get("intent_type")
 
-    if D_target is None or xDavg_target is None:
-        final_answer = (
-            "I can prototype illustrative design scenarios, but I still need both a target distillate amount D "
-            "and a target average distillate composition xDavg to do that."
+    analysis = analyze_knowns_against_workflows(
+        knowns=knowns,
+        requested_outputs=unknowns,
+    )
+    recommendation = analysis["recommendation"]
+    prototype = prototype_supported_scenarios(knowns)
+
+    if knowns:
+        known_lines = []
+        for name, value in knowns.items():
+            description = VARIABLE_DESCRIPTIONS.get(name, name)
+            if isinstance(value, float):
+                if name in {"W0", "B", "D"}:
+                    value_text = f"{value:.3f}"
+                else:
+                    value_text = f"{value:.6f}"
+            else:
+                value_text = str(value)
+            known_lines.append(f"- {name} = {value_text} ({description})")
+        knowns_block = "Known inputs so far:\n" + "\n".join(known_lines)
+    else:
+        knowns_block = "Known inputs so far:\n- none yet"
+
+    if analysis["ready_workflows"]:
+        status_intro = (
+            "You already have enough information for at least one supported deterministic workflow."
         )
-        return {
-            "guidance_response": final_answer,
-            "final_answer": final_answer,
-        }
+    elif "D" in knowns and "xDavg_target" in knowns and "W0" not in knowns and "x0" not in knowns:
+        status_intro = (
+            "Your request is still underdetermined: D and xDavg_target alone do not uniquely determine W0 and x0."
+        )
+    elif intent_type == "open_ended_guidance":
+        status_intro = (
+            "I can help you choose a supported batch distillation workflow and the next inputs to provide."
+        )
+    else:
+        status_intro = (
+            "I can compare your current knowns against the supported workflows and suggest the next useful design basis."
+        )
 
-    prototype = prototype_design_given_D_xDavg(
-        D_target=D_target,
-        xDavg_target=xDavg_target,
-        n=100,
+    relevant_workflow_lines = []
+    for workflow in analysis["closest_workflows"]:
+        missing_text = ", ".join(workflow["missing_inputs"]) if workflow["missing_inputs"] else "none"
+        relevant_workflow_lines.append(
+            f"- {workflow['label']}: requires {', '.join(workflow['required_inputs'])}; missing now: {missing_text}."
+        )
+
+    scenario_sections = []
+    if prototype["avg_distillate_scenarios"]:
+        lines = ["Illustrative target-average-distillate scenarios:"]
+        for scenario in prototype["avg_distillate_scenarios"]:
+            lines.append(
+                "- xDavg_target={xDavg_target:.4f} -> D={D:.3f} mol, B={B:.3f} mol, xB={xB:.6f}".format(
+                    **scenario
+                )
+            )
+        scenario_sections.append("\n".join(lines))
+
+    if prototype["final_still_scenarios"]:
+        lines = ["Illustrative target-final-still scenarios:"]
+        for scenario in prototype["final_still_scenarios"]:
+            lines.append(
+                "- xB={xB:.4f} -> D={D:.3f} mol, B={B:.3f} mol, xDavg={xDavg:.6f}".format(
+                    **scenario
+                )
+            )
+        scenario_sections.append("\n".join(lines))
+
+    if prototype["notes"]:
+        scenario_sections.append("Notes:\n" + "\n".join(f"- {note}" for note in prototype["notes"]))
+
+    has_scenario_results = bool(
+        prototype["avg_distillate_scenarios"] or prototype["final_still_scenarios"]
     )
 
-    scenario_lines = []
-    for scenario in prototype["scenarios"]:
-        scenario_lines.append(
-            "x0={x0:.4f}, xB={xB:.4f} -> W0={W0:.3f} mol, B={B:.3f} mol, "
-            "Rayleigh consistent={is_rayleigh_consistent}, Fully consistent={is_fully_consistent}".format(
-                **scenario
-            )
-        )
-
-    if not scenario_lines:
-        scenario_lines.append("No illustrative scenarios passed the current feasibility and consistency checks.")
+    if scenario_sections:
+        scenario_block = "\n\n".join(scenario_sections)
+        if has_scenario_results:
+            scenario_block += "\n\nThese scenario results are illustrative, not final design recommendations."
+    else:
+        scenario_block = ""
 
     final_answer = (
-        "Your request is underdetermined, so D_target and xDavg_target alone do not uniquely determine W0 and x0.\n\n"
-        f"You already specified:\n- target distillate amount D = {D_target:.3f} mol\n"
-        f"- target average distillate composition xDavg = {xDavg_target:.6f}\n\n"
-        "To help you choose a design basis, here are a few illustrative scenarios using example x0 and xB values:\n"
-        + "\n".join(f"- {line}" for line in scenario_lines)
-        + "\n\nThese are illustrative scenarios, not final design recommendations.\n"
-        + "To finalize the design, choose either the actual feed composition x0 or a target final still composition xB."
+        status_intro
+        + "\n\n"
+        + knowns_block
+        + "\n\nRelevant supported workflows:\n"
+        + "\n".join(relevant_workflow_lines)
+        + "\n\n"
+        + recommendation["explanation"]
     )
+
+    if scenario_block:
+        final_answer += "\n\n" + scenario_block
+
+    final_answer += "\n\n" + recommendation["recommended_next_question"]
 
     return {
         "guidance_response": final_answer,
@@ -429,10 +493,10 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
 
-    if intent_type == "design_prototyping":
-        return "design_prototype"
+    if intent_type in {"design_prototyping", "underdetermined_design", "open_ended_guidance"}:
+        return "design_advisor"
 
-    if intent_type in {"open_ended_guidance", "underdetermined_design", "conceptual_question"}:
+    if intent_type == "conceptual_question":
         return "guidance_responder"
 
     if state.get("needs_clarification", False):

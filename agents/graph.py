@@ -1,7 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 
 from agents.nodes import (
-    design_prototype_node,
+    design_advisor_node,
     face_node,
     guidance_responder_node,
     problem_structurer_node,
@@ -20,7 +20,7 @@ def build_graph():
 
     graph.add_node("face", face_node)
     graph.add_node("problem_structurer", problem_structurer_node)
-    graph.add_node("design_prototype", design_prototype_node)
+    graph.add_node("design_advisor", design_advisor_node)
     graph.add_node("guidance_responder", guidance_responder_node)
     graph.add_node("validation_calculation", validation_calculation_node)
     graph.add_node("result_explainer", result_explainer_node)
@@ -32,13 +32,13 @@ def build_graph():
         "problem_structurer",
         route_after_problem_structurer,
         {
-            "design_prototype": "design_prototype",
+            "design_advisor": "design_advisor",
             "validation_calculation": "validation_calculation",
             "guidance_responder": "guidance_responder",
         },
     )
 
-    graph.add_edge("design_prototype", END)
+    graph.add_edge("design_advisor", END)
     graph.add_edge("guidance_responder", END)
     graph.add_edge("validation_calculation", "result_explainer")
     graph.add_edge("result_explainer", END)

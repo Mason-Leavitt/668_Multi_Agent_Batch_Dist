@@ -59,6 +59,12 @@ Open-ended starting request
   `"I don't know where to start but I want to conduct a distillation."`
 - The assistant can now guide a vague starting request toward one of the supported workflows instead of forcing an immediate calculation.
 
+Partial design request
+
+- Example prompt:
+  `"I have 1000 mol at 5 mol% ethanol, help me choose targets."`
+- The assistant can compare the known inputs against the supported workflows, explain what is still missing, and show simple illustrative scenario results when an existing deterministic solver can support them.
+
 Underdetermined design request
 
 - Example prompt:
@@ -69,7 +75,7 @@ Design prototyping request
 
 - Example prompt:
   `"I want a distillate of 50 moles at a 0.2 mole fraction of ethanol. How much initial mole mixture do I need and at what mole fraction?"`
-- The assistant can prototype illustrative scenarios for underdetermined design requests and show example `W0`, `B`, `x0`, and `xB` combinations before the user chooses a final design basis.
+- The assistant can compare the user's knowns against the supported workflows and explain when an additional design basis is still required before a reliable calculation can be completed.
 
 Project structure:
 

@@ -1,6 +1,7 @@
 import streamlit as st
 
 from agents.graph import build_graph
+from agents.session_commands import apply_session_command, parse_session_command
 
 
 def initialize_session_state() -> None:
@@ -21,6 +22,7 @@ def initialize_session_state() -> None:
 
 
 def reset_conversation() -> None:
+    # Reset clears the remembered session state and visible chat history together.
     st.session_state.messages = []
     st.session_state.prior_knowns = {}
     st.session_state.prior_needs_clarification = False
@@ -75,39 +77,56 @@ def main() -> None:
         st.markdown(user_message)
 
     try:
-        graph_input = {"user_message": user_message}
-        if (
-            st.session_state.prior_knowns
-            or st.session_state.prior_needs_clarification
-            or st.session_state.prior_clarification_question
-        ):
-            graph_input["prior_knowns"] = st.session_state.prior_knowns
-            graph_input["prior_needs_clarification"] = (
-                st.session_state.prior_needs_clarification
+        session_command = parse_session_command(user_message)
+        if session_command["is_session_command"]:
+            session_update = apply_session_command(
+                command=session_command,
+                prior_knowns=st.session_state.prior_knowns,
+                prior_needs_clarification=st.session_state.prior_needs_clarification,
+                prior_clarification_question=st.session_state.prior_clarification_question,
             )
-            graph_input["prior_clarification_question"] = (
-                st.session_state.prior_clarification_question
+            st.session_state.prior_knowns = session_update["prior_knowns"]
+            st.session_state.prior_needs_clarification = session_update[
+                "prior_needs_clarification"
+            ]
+            st.session_state.prior_clarification_question = session_update[
+                "prior_clarification_question"
+            ]
+            assistant_message = session_update["message"]
+        else:
+            graph_input = {"user_message": user_message}
+            if (
+                st.session_state.prior_knowns
+                or st.session_state.prior_needs_clarification
+                or st.session_state.prior_clarification_question
+            ):
+                graph_input["prior_knowns"] = st.session_state.prior_knowns
+                graph_input["prior_needs_clarification"] = (
+                    st.session_state.prior_needs_clarification
+                )
+                graph_input["prior_clarification_question"] = (
+                    st.session_state.prior_clarification_question
+                )
+
+            final_state = st.session_state.graph_app.invoke(graph_input)
+            assistant_message = final_state["final_answer"]
+            st.session_state.prior_knowns = final_state.get("knowns", {})
+            st.session_state.prior_needs_clarification = final_state.get(
+                "needs_clarification", False
+            )
+            st.session_state.prior_clarification_question = final_state.get(
+                "clarification_question"
             )
 
-        final_state = st.session_state.graph_app.invoke(graph_input)
-        assistant_message = final_state["final_answer"]
-        st.session_state.prior_knowns = final_state.get("knowns", {})
-        st.session_state.prior_needs_clarification = final_state.get(
-            "needs_clarification", False
-        )
-        st.session_state.prior_clarification_question = final_state.get(
-            "clarification_question"
-        )
-
-        if not st.session_state.prior_needs_clarification and final_state.get(
-            "intent_type"
-        ) not in {
-            "design_prototyping",
-            "open_ended_guidance",
-            "conceptual_question",
-        }:
-            st.session_state.prior_knowns = {}
-            st.session_state.prior_clarification_question = None
+            if not st.session_state.prior_needs_clarification and final_state.get(
+                "intent_type"
+            ) not in {
+                "design_prototyping",
+                "open_ended_guidance",
+                "conceptual_question",
+            }:
+                st.session_state.prior_knowns = {}
+                st.session_state.prior_clarification_question = None
     except Exception as exc:
         assistant_message = f"Assistant error: {exc}"
 

@@ -1,4 +1,5 @@
 from agents.graph import build_graph
+from agents.session_commands import apply_session_command, parse_session_command
 
 
 def main() -> None:
@@ -21,6 +22,20 @@ def main() -> None:
             continue
 
         try:
+            session_command = parse_session_command(user_message)
+            if session_command["is_session_command"]:
+                session_update = apply_session_command(
+                    command=session_command,
+                    prior_knowns=session_knowns,
+                    prior_needs_clarification=awaiting_clarification,
+                    prior_clarification_question=clarification_question,
+                )
+                session_knowns = session_update["prior_knowns"]
+                awaiting_clarification = session_update["prior_needs_clarification"]
+                clarification_question = session_update["prior_clarification_question"]
+                print(f"\nAssistant: {session_update['message']}")
+                continue
+
             graph_input = {"user_message": user_message}
             if session_knowns or awaiting_clarification or clarification_question:
                 graph_input["prior_knowns"] = session_knowns

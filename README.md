@@ -45,6 +45,17 @@ At a high level, the conversational graph is:
 
 The LLM does not perform the batch distillation calculations. Deterministic Python tools perform the Rayleigh and mole-balance calculations, and chemical engineering assumptions are intentionally limited to the current formulas and VLE lookup.
 
+## Session commands
+
+In the CLI and Streamlit chat, you can manage remembered values in the current session with simple commands:
+
+- `start over` or `reset`
+- `forget x0`
+- `change x0 to 0.08`
+- `set W0 to 1500`
+
+These commands affect remembered values in the current CLI or Streamlit session only. Variable names are handled case-insensitively where practical, so commands like `set w0 to 1500` also work.
+
 ## Supported workflow examples
 
 `solve_D_given_W0_x0_xDavg`

@@ -37,6 +37,9 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
     structured calculation request.
     """
     user_message = state.get("user_goal", state["user_message"])
+    prior_knowns = state.get("prior_knowns", {})
+    prior_needs_clarification = state.get("prior_needs_clarification", False)
+    prior_clarification_question = state.get("prior_clarification_question")
 
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError(
@@ -49,10 +52,18 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
         method="function_calling",
     )
 
-    structured = structured_llm.invoke(build_problem_structurer_prompt(user_message))
+    structured = structured_llm.invoke(
+        build_problem_structurer_prompt(
+            user_message=user_message,
+            prior_knowns=prior_knowns,
+            prior_needs_clarification=prior_needs_clarification,
+            prior_clarification_question=prior_clarification_question,
+        )
+    )
+    merged_knowns = {**prior_knowns, **structured.knowns.model_dump(exclude_none=True)}
     structured_dict = ProblemRequest(
         problem_type=structured.problem_type,
-        knowns=structured.knowns.model_dump(exclude_none=True),
+        knowns=merged_knowns,
         unknowns=structured.unknowns,
         needs_clarification=structured.needs_clarification,
         clarification_question=structured.clarification_question,

@@ -12,6 +12,9 @@ class BatchDistillationState(TypedDict, total=False):
 
     user_message: str
     user_goal: str
+    prior_knowns: dict[str, float]
+    prior_needs_clarification: bool
+    prior_clarification_question: str | None
 
     problem_type: ProblemType
     knowns: dict[str, float]

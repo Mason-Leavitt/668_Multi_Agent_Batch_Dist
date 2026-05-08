@@ -1,7 +1,22 @@
 from textwrap import dedent
 
 
-def build_problem_structurer_prompt(user_message: str) -> str:
+def build_problem_structurer_prompt(
+    user_message: str,
+    prior_knowns: dict[str, float] | None = None,
+    prior_needs_clarification: bool = False,
+    prior_clarification_question: str | None = None,
+) -> str:
+    prior_knowns = prior_knowns or {}
+    prior_context_block = dedent(
+        f"""
+        Prior context from the current CLI session:
+        - prior_knowns = {prior_knowns}
+        - prior_needs_clarification = {prior_needs_clarification}
+        - prior_clarification_question = {prior_clarification_question}
+        """
+    ).strip()
+
     return dedent(
         f"""
         You are the ProblemStructurer node for a simple educational batch
@@ -31,6 +46,9 @@ def build_problem_structurer_prompt(user_message: str) -> str:
           problem_type="unknown"
           needs_clarification=True
           clarification_question=<concise question>
+        - If prior context is provided, use it together with the new user
+          message. A short follow-up answer may supply only the missing value.
+        - Reuse prior knowns when they are still relevant.
 
         Mapping guidance:
         - If the user gives W0, x0, and a target average distillate composition
@@ -78,6 +96,14 @@ def build_problem_structurer_prompt(user_message: str) -> str:
         If the user asks how much distillate can be collected but does not give
         either a target average distillate composition or a final still
         composition, ask a concise clarification question.
+
+        If prior knowns include W0 and x0, and the new user message supplies a
+        target average distillate composition, use solve_D_given_W0_x0_xDavg.
+
+        If prior knowns include W0 and x0, and the new user message supplies a
+        final still composition xB, use solve_batch_given_W0_x0_xB.
+
+        {prior_context_block}
 
         User message:
         {user_message}

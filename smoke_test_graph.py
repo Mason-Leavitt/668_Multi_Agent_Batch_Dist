@@ -17,6 +17,8 @@ CLARIFICATION_PATH_MESSAGE = (
     "How much distillate can I collect?"
 )
 
+CLARIFICATION_FOLLOWUP_MESSAGE = "20 mol% average distillate."
+
 
 def assert_result_keys(state: dict) -> None:
     result = state["result"]
@@ -45,6 +47,18 @@ def main() -> None:
     assert "final_answer" in clarification_path
     assert clarification_path["final_answer"].strip()
 
+    clarification_followup = app.invoke(
+        {
+            "user_message": CLARIFICATION_FOLLOWUP_MESSAGE,
+            "prior_knowns": clarification_path["knowns"],
+            "prior_needs_clarification": clarification_path["needs_clarification"],
+            "prior_clarification_question": clarification_path["clarification_question"],
+        }
+    )
+    assert clarification_followup["problem_type"] == "solve_D_given_W0_x0_xDavg"
+    assert clarification_followup["calculation_success"] is True
+    assert_result_keys(clarification_followup)
+
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(
         "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
@@ -63,6 +77,14 @@ def main() -> None:
         )
     )
     print(f"Clarification path: {clarification_path['final_answer']}")
+    print(
+        "Clarification follow-up: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
+            D=clarification_followup["result"]["D"],
+            B=clarification_followup["result"]["B"],
+            xB=clarification_followup["result"]["xB"],
+            xDavg=clarification_followup["result"]["xDavg"],
+        )
+    )
 
 
 if __name__ == "__main__":

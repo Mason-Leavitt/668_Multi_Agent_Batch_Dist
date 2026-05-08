@@ -29,6 +29,7 @@ def build_problem_structurer_prompt(
         Supported intent_type values:
         - calculation_request
         - open_ended_guidance
+        - underdetermined_design
         - clarification_answer
         - conceptual_question
         - unknown
@@ -59,6 +60,9 @@ def build_problem_structurer_prompt(
         - Reuse prior knowns when they are still relevant.
         - If the user is vague and wants help getting started, classify it as
           open_ended_guidance rather than forcing it into a calculation.
+        - If the user specifies target outputs such as a desired distillate amount
+          or target composition but does not provide enough design basis to run a
+          supported calculation, classify it as underdetermined_design.
         - If the user asks what a variable means, classify it as
           conceptual_question.
 
@@ -73,6 +77,9 @@ def build_problem_structurer_prompt(
           follow-up that supplies a missing value, use clarification_answer.
         - If the user says something like "I don't know where to start" or asks
           for help choosing an approach, use open_ended_guidance.
+        - If the user asks for a design target like "I want 50 mol of distillate
+          at xDavg=0.2" but does not provide enough information to calculate it,
+          use underdetermined_design.
         - If the user asks for something outside the supported project, use unknown.
 
         Keep knowns numeric. Keep unknowns as variable names. Keep the
@@ -119,6 +126,21 @@ def build_problem_structurer_prompt(
         - intent_type = open_ended_guidance
         - problem_type = unknown
         - needs_clarification = False
+
+        For this kind of request:
+        "I want to produce about 50 moles of distillate at a 0.2 ethanol mole
+        fraction. How do I set up the still?"
+        the correct mapping is:
+        - intent_type = underdetermined_design
+        - problem_type = unknown
+        - knowns.D = 50.0
+        - knowns.xDavg_target = 0.20
+        - needs_clarification = False
+        - do not ask only for W0 if a more useful design-basis explanation is needed
+
+        If the user replies with something like "I don't know, how much would I
+        need?" after being asked for W0, keep the existing knowns and classify it
+        as underdetermined_design rather than repeating the same W0 question.
 
         If prior knowns include W0 and x0, and the new user message supplies a
         target average distillate composition, use solve_D_given_W0_x0_xDavg.

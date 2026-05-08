@@ -48,3 +48,13 @@ SUPPORTED_WORKFLOWS = {
         ),
     },
 }
+
+VARIABLE_DESCRIPTIONS = {
+    "W0": "initial charge amount in the still",
+    "D": "distillate amount collected",
+    "B": "amount remaining in the still",
+    "x0": "initial ethanol mole fraction in the feed",
+    "xB": "final ethanol mole fraction in the still",
+    "xDavg_target": "target average ethanol mole fraction in the distillate",
+    "xDavg": "average ethanol mole fraction in the distillate",
+}

@@ -59,6 +59,12 @@ Open-ended starting request
   `"I don't know where to start but I want to conduct a distillation."`
 - The assistant can now guide a vague starting request toward one of the supported workflows instead of forcing an immediate calculation.
 
+Underdetermined design request
+
+- Example prompt:
+  `"I want to produce about 50 moles of ethanol-water mixture distillate at a 0.2 ethanol mole fraction. How do I set up the still?"`
+- The assistant can summarize the provided targets, explain that the request is still underdetermined, and ask for a useful next design basis such as `x0` or `xB`.
+
 Project structure:
 
 ```text

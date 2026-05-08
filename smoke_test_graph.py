@@ -25,6 +25,11 @@ CLARIFICATION_PATH_MESSAGE = (
 
 CLARIFICATION_FOLLOWUP_MESSAGE = "20 mol% average distillate."
 OPEN_ENDED_GUIDANCE_MESSAGE = "I don't know where to start but I want to conduct a distillation."
+UNDERDETERMINED_DESIGN_MESSAGE = (
+    "I want to produce about 50 moles of ethanol-water mixture distillate "
+    "at a 0.2 ethanol mole fraction. How do I set up the still?"
+)
+UNDERDETERMINED_DESIGN_FOLLOWUP_MESSAGE = "I don't know, how much would I need?"
 
 
 def assert_result_keys(state: dict) -> None:
@@ -77,6 +82,31 @@ def main() -> None:
     assert "average distillate" in guidance_text
     assert "final still" in guidance_text
 
+    underdetermined_design = app.invoke({"user_message": UNDERDETERMINED_DESIGN_MESSAGE})
+    assert "final_answer" in underdetermined_design
+    assert underdetermined_design["final_answer"].strip()
+    underdetermined_text = underdetermined_design["final_answer"].lower()
+    assert "50" in underdetermined_design["final_answer"]
+    assert "0.2" in underdetermined_design["final_answer"]
+    assert "x0" in underdetermined_text or "initial ethanol mole fraction" in underdetermined_text
+    assert "what is w0" not in underdetermined_text
+
+    underdetermined_followup = app.invoke(
+        {
+            "user_message": UNDERDETERMINED_DESIGN_FOLLOWUP_MESSAGE,
+            "prior_knowns": underdetermined_design["knowns"],
+            "prior_needs_clarification": underdetermined_design["needs_clarification"],
+            "prior_clarification_question": underdetermined_design["clarification_question"],
+        }
+    )
+    assert "final_answer" in underdetermined_followup
+    assert underdetermined_followup["final_answer"].strip()
+    followup_text = underdetermined_followup["final_answer"].lower()
+    assert "cannot" in followup_text or "need one more design basis" in followup_text
+    assert "x0" in followup_text or "initial ethanol mole fraction" in followup_text
+    assert "xb" in followup_text or "final still composition" in followup_text
+    assert "what is w0" not in followup_text
+
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(
         "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
@@ -104,6 +134,8 @@ def main() -> None:
         )
     )
     print(f"Open-ended guidance: {open_ended_guidance['final_answer']}")
+    print(f"Underdetermined design: {underdetermined_design['final_answer']}")
+    print(f"Underdetermined follow-up: {underdetermined_followup['final_answer']}")
 
 
 if __name__ == "__main__":

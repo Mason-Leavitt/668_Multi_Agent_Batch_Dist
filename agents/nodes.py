@@ -6,7 +6,7 @@ from langchain_openai import ChatOpenAI
 from agents.prompts import build_problem_structurer_prompt
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
-from agents.workflows import SUPPORTED_WORKFLOWS
+from agents.workflows import SUPPORTED_WORKFLOWS, VARIABLE_DESCRIPTIONS
 from engineering.tools import (
     check_batch_consistency,
     solve_batch_given_W0_x0_xB,
@@ -81,6 +81,69 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
             f"- {workflow['label']}: {workflow['description']} "
             f"Required inputs: {', '.join(workflow['required_inputs'])}."
         )
+
+    knowns = state.get("knowns", {})
+    intent_type = state.get("intent_type")
+    user_message = state.get("user_message", "").lower()
+
+    if intent_type == "underdetermined_design":
+        x0_description = VARIABLE_DESCRIPTIONS["x0"]
+        xB_description = VARIABLE_DESCRIPTIONS["xB"]
+        W0_description = VARIABLE_DESCRIPTIONS["W0"]
+        provided_lines = []
+        if "D" in knowns:
+            provided_lines.append(f"- target distillate amount D = {knowns['D']:.3f} mol")
+        if "xDavg_target" in knowns:
+            provided_lines.append(
+                f"- target average distillate composition xDavg = {knowns['xDavg_target']:.6f}"
+            )
+        if "xDavg" in knowns and "xDavg_target" not in knowns:
+            provided_lines.append(
+                f"- target average distillate composition xDavg = {knowns['xDavg']:.6f}"
+            )
+        if "x0" in knowns:
+            provided_lines.append(
+                f"- initial ethanol mole fraction x0 = {knowns['x0']:.6f}"
+            )
+        if "W0" in knowns:
+            provided_lines.append(f"- available initial charge W0 = {knowns['W0']:.3f} mol")
+
+        next_question = "Do you know the ethanol mole fraction x0 of the starting mixture?"
+        if "x0" in knowns and "xB" not in knowns:
+            next_question = (
+                "Do you know the final still composition xB you are willing to run down to?"
+            )
+        elif "x0" in knowns and "xB" in knowns:
+            next_question = (
+                "If you want, I can use W0, x0, and xB in the supported final-still-composition workflow."
+            )
+
+        summary = "You already specified:\n" + "\n".join(provided_lines) if provided_lines else ""
+        underdetermined_explanation = (
+            "To determine the required initial charge W0, I need one more design basis."
+        )
+        options = (
+            "A simple batch Rayleigh calculation also needs something like:\n"
+            f"1. the {x0_description} x0, if you know what feed you are starting with;\n"
+            f"2. the {xB_description} xB, if you know how depleted you are willing to run the still;\n"
+            f"3. or an available {W0_description} W0, if you want to calculate what distillate amount is possible."
+        )
+
+        final_answer = (
+            underdetermined_explanation
+            + "\n\n"
+            + summary
+            + "\n\n"
+            + options
+            + "\n\n"
+            + "For your case, the most natural next input is the initial ethanol mole fraction x0 of the feed.\n"
+            + next_question
+        ).strip()
+
+        return {
+            "guidance_response": final_answer,
+            "final_answer": final_answer,
+        }
 
     if state.get("needs_clarification", False):
         intro = (
@@ -316,7 +379,7 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
 
-    if intent_type in {"open_ended_guidance", "conceptual_question"}:
+    if intent_type in {"open_ended_guidance", "underdetermined_design", "conceptual_question"}:
         return "guidance_responder"
 
     if state.get("needs_clarification", False):

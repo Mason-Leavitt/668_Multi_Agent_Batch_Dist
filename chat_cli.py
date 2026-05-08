@@ -22,7 +22,7 @@ def main() -> None:
 
         try:
             graph_input = {"user_message": user_message}
-            if awaiting_clarification:
+            if session_knowns or awaiting_clarification or clarification_question:
                 graph_input["prior_knowns"] = session_knowns
                 graph_input["prior_needs_clarification"] = awaiting_clarification
                 graph_input["prior_clarification_question"] = clarification_question
@@ -34,6 +34,7 @@ def main() -> None:
 
             if not awaiting_clarification and final_state.get("intent_type") not in {
                 "open_ended_guidance",
+                "underdetermined_design",
                 "conceptual_question",
             }:
                 session_knowns = {}

@@ -75,14 +75,21 @@ def main() -> None:
         st.markdown(user_message)
 
     try:
-        final_state = st.session_state.graph_app.invoke(
-            {
-                "user_message": user_message,
-                "prior_knowns": st.session_state.prior_knowns,
-                "prior_needs_clarification": st.session_state.prior_needs_clarification,
-                "prior_clarification_question": st.session_state.prior_clarification_question,
-            }
-        )
+        graph_input = {"user_message": user_message}
+        if (
+            st.session_state.prior_knowns
+            or st.session_state.prior_needs_clarification
+            or st.session_state.prior_clarification_question
+        ):
+            graph_input["prior_knowns"] = st.session_state.prior_knowns
+            graph_input["prior_needs_clarification"] = (
+                st.session_state.prior_needs_clarification
+            )
+            graph_input["prior_clarification_question"] = (
+                st.session_state.prior_clarification_question
+            )
+
+        final_state = st.session_state.graph_app.invoke(graph_input)
         assistant_message = final_state["final_answer"]
         st.session_state.prior_knowns = final_state.get("knowns", {})
         st.session_state.prior_needs_clarification = final_state.get(
@@ -94,7 +101,7 @@ def main() -> None:
 
         if not st.session_state.prior_needs_clarification and final_state.get(
             "intent_type"
-        ) not in {"open_ended_guidance", "conceptual_question"}:
+        ) not in {"open_ended_guidance", "underdetermined_design", "conceptual_question"}:
             st.session_state.prior_knowns = {}
             st.session_state.prior_clarification_question = None
     except Exception as exc:

@@ -53,6 +53,12 @@ The LLM does not perform the batch distillation calculations. Deterministic Pyth
   `"Check whether this batch result is consistent: W0=1000 mol, B=763.986 mol, D=236.014 mol, x0=0.05, xB=0.003661, and xDavg=0.20."`
 - This path checks total mole balance, ethanol component balance, and Rayleigh consistency.
 
+Open-ended starting request
+
+- Example prompt:
+  `"I don't know where to start but I want to conduct a distillation."`
+- The assistant can now guide a vague starting request toward one of the supported workflows instead of forcing an immediate calculation.
+
 Project structure:
 
 ```text

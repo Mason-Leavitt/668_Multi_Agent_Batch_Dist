@@ -24,6 +24,7 @@ CLARIFICATION_PATH_MESSAGE = (
 )
 
 CLARIFICATION_FOLLOWUP_MESSAGE = "20 mol% average distillate."
+OPEN_ENDED_GUIDANCE_MESSAGE = "I don't know where to start but I want to conduct a distillation."
 
 
 def assert_result_keys(state: dict) -> None:
@@ -65,6 +66,17 @@ def main() -> None:
     assert clarification_followup["calculation_success"] is True
     assert_result_keys(clarification_followup)
 
+    open_ended_guidance = app.invoke({"user_message": OPEN_ENDED_GUIDANCE_MESSAGE})
+    assert "final_answer" in open_ended_guidance
+    assert open_ended_guidance["final_answer"].strip()
+    assert (
+        open_ended_guidance.get("intent_type") == "open_ended_guidance"
+        or "supported workflows" in open_ended_guidance["final_answer"].lower()
+    )
+    guidance_text = open_ended_guidance["final_answer"].lower()
+    assert "average distillate" in guidance_text
+    assert "final still" in guidance_text
+
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(
         "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
@@ -91,6 +103,7 @@ def main() -> None:
             xDavg=clarification_followup["result"]["xDavg"],
         )
     )
+    print(f"Open-ended guidance: {open_ended_guidance['final_answer']}")
 
 
 if __name__ == "__main__":

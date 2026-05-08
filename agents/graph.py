@@ -2,6 +2,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agents.nodes import (
     face_node,
+    guidance_responder_node,
     problem_structurer_node,
     result_explainer_node,
     route_after_problem_structurer,
@@ -18,6 +19,7 @@ def build_graph():
 
     graph.add_node("face", face_node)
     graph.add_node("problem_structurer", problem_structurer_node)
+    graph.add_node("guidance_responder", guidance_responder_node)
     graph.add_node("validation_calculation", validation_calculation_node)
     graph.add_node("result_explainer", result_explainer_node)
 
@@ -29,10 +31,11 @@ def build_graph():
         route_after_problem_structurer,
         {
             "validation_calculation": "validation_calculation",
-            "result_explainer": "result_explainer",
+            "guidance_responder": "guidance_responder",
         },
     )
 
+    graph.add_edge("guidance_responder", END)
     graph.add_edge("validation_calculation", "result_explainer")
     graph.add_edge("result_explainer", END)
 

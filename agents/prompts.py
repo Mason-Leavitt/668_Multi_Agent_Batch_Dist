@@ -26,6 +26,13 @@ def build_problem_structurer_prompt(
         deterministic calculation tools. Do not perform any engineering
         calculations.
 
+        Supported intent_type values:
+        - calculation_request
+        - open_ended_guidance
+        - clarification_answer
+        - conceptual_question
+        - unknown
+
         Supported problem_type values:
         - solve_D_given_W0_x0_xDavg
         - solve_batch_given_W0_x0_xB
@@ -43,12 +50,17 @@ def build_problem_structurer_prompt(
         - Do not treat ABV, volume percent, or weight percent as mole fraction.
         - If enough information is missing to select and populate a supported
           calculation, return:
+          intent_type="calculation_request"
           problem_type="unknown"
           needs_clarification=True
           clarification_question=<concise question>
         - If prior context is provided, use it together with the new user
           message. A short follow-up answer may supply only the missing value.
         - Reuse prior knowns when they are still relevant.
+        - If the user is vague and wants help getting started, classify it as
+          open_ended_guidance rather than forcing it into a calculation.
+        - If the user asks what a variable means, classify it as
+          conceptual_question.
 
         Mapping guidance:
         - If the user gives W0, x0, and a target average distillate composition
@@ -57,6 +69,11 @@ def build_problem_structurer_prompt(
         - If the user gives W0, x0, and xB, use solve_batch_given_W0_x0_xB.
         - If the user asks to verify consistency and provides W0, B, D, x0, xB,
           and xDavg, use check_batch_consistency.
+        - If the user is answering a previous clarification question with a short
+          follow-up that supplies a missing value, use clarification_answer.
+        - If the user says something like "I don't know where to start" or asks
+          for help choosing an approach, use open_ended_guidance.
+        - If the user asks for something outside the supported project, use unknown.
 
         Keep knowns numeric. Keep unknowns as variable names. Keep the
         clarification question concise.
@@ -96,6 +113,12 @@ def build_problem_structurer_prompt(
         If the user asks how much distillate can be collected but does not give
         either a target average distillate composition or a final still
         composition, ask a concise clarification question.
+
+        If the user says something like "I don't know where to start but I want
+        to conduct a distillation", classify it as:
+        - intent_type = open_ended_guidance
+        - problem_type = unknown
+        - needs_clarification = False
 
         If prior knowns include W0 and x0, and the new user message supplies a
         target average distillate composition, use solve_D_given_W0_x0_xDavg.

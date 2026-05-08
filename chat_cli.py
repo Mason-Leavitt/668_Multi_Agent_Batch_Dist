@@ -32,7 +32,10 @@ def main() -> None:
             awaiting_clarification = final_state.get("needs_clarification", False)
             clarification_question = final_state.get("clarification_question")
 
-            if not awaiting_clarification:
+            if not awaiting_clarification and final_state.get("intent_type") not in {
+                "open_ended_guidance",
+                "conceptual_question",
+            }:
                 session_knowns = {}
                 clarification_question = None
 

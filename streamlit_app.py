@@ -92,7 +92,9 @@ def main() -> None:
             "clarification_question"
         )
 
-        if not st.session_state.prior_needs_clarification:
+        if not st.session_state.prior_needs_clarification and final_state.get(
+            "intent_type"
+        ) not in {"open_ended_guidance", "conceptual_question"}:
             st.session_state.prior_knowns = {}
             st.session_state.prior_clarification_question = None
     except Exception as exc:

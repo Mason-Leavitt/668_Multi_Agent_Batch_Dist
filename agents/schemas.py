@@ -9,8 +9,17 @@ ProblemType = Literal[
     "unknown",
 ]
 
+IntentType = Literal[
+    "calculation_request",
+    "open_ended_guidance",
+    "clarification_answer",
+    "conceptual_question",
+    "unknown",
+]
+
 
 class ProblemRequest(BaseModel):
+    intent_type: IntentType
     problem_type: ProblemType
     knowns: dict[str, float] = Field(default_factory=dict)
     unknowns: list[str] = Field(default_factory=list)
@@ -29,6 +38,7 @@ class StructuredKnowns(BaseModel):
 
 
 class LLMProblemRequest(BaseModel):
+    intent_type: IntentType
     problem_type: ProblemType
     knowns: StructuredKnowns = Field(default_factory=StructuredKnowns)
     unknowns: list[str] = Field(default_factory=list)

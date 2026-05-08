@@ -1,6 +1,6 @@
 from typing import Any, TypedDict
 
-from agents.schemas import ProblemType
+from agents.schemas import IntentType, ProblemType
 
 
 class BatchDistillationState(TypedDict, total=False):
@@ -16,11 +16,13 @@ class BatchDistillationState(TypedDict, total=False):
     prior_needs_clarification: bool
     prior_clarification_question: str | None
 
+    intent_type: IntentType
     problem_type: ProblemType
     knowns: dict[str, float]
     unknowns: list[str]
     needs_clarification: bool
     clarification_question: str | None
+    guidance_response: str
 
     calculation_success: bool
     result: dict[str, Any]

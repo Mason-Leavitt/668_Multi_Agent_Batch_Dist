@@ -6,6 +6,7 @@ from langchain_openai import ChatOpenAI
 from agents.prompts import build_problem_structurer_prompt
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
+from agents.workflows import SUPPORTED_WORKFLOWS
 from engineering.tools import (
     check_batch_consistency,
     solve_batch_given_W0_x0_xB,
@@ -62,6 +63,7 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
     )
     merged_knowns = {**prior_knowns, **structured.knowns.model_dump(exclude_none=True)}
     structured_dict = ProblemRequest(
+        intent_type=structured.intent_type,
         problem_type=structured.problem_type,
         knowns=merged_knowns,
         unknowns=structured.unknowns,
@@ -70,6 +72,50 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
     ).model_dump()
 
     return structured_dict
+
+
+def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationState:
+    workflow_lines = []
+    for workflow in SUPPORTED_WORKFLOWS.values():
+        workflow_lines.append(
+            f"- {workflow['label']}: {workflow['description']} "
+            f"Required inputs: {', '.join(workflow['required_inputs'])}."
+        )
+
+    if state.get("needs_clarification", False):
+        intro = (
+            "I need one more piece of information before I can run a deterministic calculation."
+        )
+        question = state.get(
+            "clarification_question",
+            "What additional information do you want to provide?",
+        )
+    elif state.get("intent_type") == "conceptual_question":
+        intro = (
+            "I can help explain the supported batch distillation workflows and the inputs they use."
+        )
+        question = "Which variable or workflow would you like to clarify first?"
+    elif state.get("intent_type") == "open_ended_guidance":
+        intro = "I can help you approach the batch distillation calculation in a few ways."
+        question = (
+            "To start, do you know your initial charge W0 and initial ethanol mole fraction x0?"
+        )
+    else:
+        intro = "I can help with a few supported batch distillation tasks."
+        question = "Which workflow would you like to try?"
+
+    final_answer = (
+        intro
+        + "\n\nSupported workflows:\n"
+        + "\n".join(workflow_lines)
+        + "\n\n"
+        + question
+    )
+
+    return {
+        "guidance_response": final_answer,
+        "final_answer": final_answer,
+    }
 
 
 def validation_calculation_node(state: BatchDistillationState) -> BatchDistillationState:
@@ -212,6 +258,19 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 
     result = state["result"]
     check = state["consistency_check"]
+    problem_type = state["problem_type"]
+
+    if problem_type == "check_batch_consistency":
+        final_answer = (
+            "Consistency check result:\n\n"
+            + f"- Fully consistent: {check.get('is_fully_consistent')}\n"
+            + f"- Total balance consistent: {check.get('is_total_balance_consistent')}\n"
+            + f"- Component balance consistent: {check.get('is_component_balance_consistent')}\n"
+            + f"- Rayleigh equation consistent: {check.get('is_rayleigh_consistent')}"
+        )
+        return {
+            "final_answer": final_answer
+        }
 
     D = result["D"]
     B = result["B"]
@@ -255,7 +314,15 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 
 
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
+    intent_type = state.get("intent_type")
+
+    if intent_type in {"open_ended_guidance", "conceptual_question"}:
+        return "guidance_responder"
+
     if state.get("needs_clarification", False):
-        return "result_explainer"
+        return "guidance_responder"
+
+    if state.get("problem_type") == "unknown":
+        return "guidance_responder"
 
     return "validation_calculation"

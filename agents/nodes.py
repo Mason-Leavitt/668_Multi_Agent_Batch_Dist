@@ -68,15 +68,6 @@ def problem_structurer_node(state: BatchDistillationState) -> BatchDistillationS
         needs_clarification=structured.needs_clarification,
         clarification_question=structured.clarification_question,
     ).model_dump()
-    print(
-        "ProblemStructurer:",
-        {
-            "problem_type": structured_dict["problem_type"],
-            "knowns": structured_dict["knowns"],
-            "unknowns": structured_dict["unknowns"],
-            "needs_clarification": structured_dict["needs_clarification"],
-        },
-    )
 
     return structured_dict
 
@@ -138,6 +129,39 @@ def validation_calculation_node(state: BatchDistillationState) -> BatchDistillat
             return {
                 "calculation_success": True,
                 "result": result,
+                "consistency_check": check,
+                "errors": [],
+                "warnings": [],
+            }
+
+        if problem_type == "check_batch_consistency":
+            required_keys = ("W0", "B", "D", "x0", "xB", "xDavg")
+            missing_keys = [key for key in required_keys if key not in knowns]
+            if missing_keys:
+                return {
+                    "calculation_success": False,
+                    "result": {},
+                    "consistency_check": {},
+                    "errors": [
+                        "Missing required inputs for check_batch_consistency: "
+                        + ", ".join(missing_keys)
+                    ],
+                    "warnings": [],
+                }
+
+            check = check_batch_consistency(
+                W0=knowns["W0"],
+                B=knowns["B"],
+                D=knowns["D"],
+                x0=knowns["x0"],
+                xB=knowns["xB"],
+                xDavg=knowns["xDavg"],
+                n=100,
+            )
+
+            return {
+                "calculation_success": True,
+                "result": dict(knowns),
                 "consistency_check": check,
                 "errors": [],
                 "warnings": [],

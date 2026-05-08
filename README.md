@@ -4,6 +4,15 @@
 
 `smoke_test_graph.py` now checks multiple graph paths, including two successful solve paths and one clarification path.
 
+## Setup
+
+1. Run `uv sync`.
+2. Create a `.env` file in the project root.
+3. Add `OPENAI_API_KEY=...` to `.env`.
+4. Make sure OpenAI API access, internet access, and available API quota are present before running the graph-based demos.
+
+`graph_demo.py`, `chat_cli.py`, `streamlit_app.py`, and the current `smoke_test_graph.py` all require live OpenAI access.
+
 ## Architecture
 
 The assistant uses a simple four-node LangGraph workflow:
@@ -23,6 +32,8 @@ Project structure:
 v02/
   graph_demo.py
   smoke_test_graph.py
+  chat_cli.py
+  streamlit_app.py
   agents/
   engineering/
 ```

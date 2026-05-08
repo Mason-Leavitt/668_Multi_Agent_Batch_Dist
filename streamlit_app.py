@@ -33,7 +33,7 @@ def main() -> None:
 
     st.title("Batch Distillation Assistant")
     st.write(
-        "Use this agent to plan and solve batch distillation unit ops."
+        "A simple LangGraph multi-agent assistant using deterministic batch distillation tools."
     )
 
     with st.sidebar:

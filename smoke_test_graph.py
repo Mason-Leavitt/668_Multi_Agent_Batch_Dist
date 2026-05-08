@@ -1,5 +1,8 @@
 from agents.graph import build_graph
 
+# This is an LLM-integration smoke test.
+# It requires OpenAI access and may fail if the API is unavailable or the
+# model's structured output behavior changes.
 
 HAPPY_PATH_1_MESSAGE = (
     "I have 1000 mol of ethanol-water at 5 mol% ethanol. "

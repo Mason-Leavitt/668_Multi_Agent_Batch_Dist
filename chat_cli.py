@@ -10,7 +10,7 @@ def main() -> None:
     clarification_question: str | None = None
 
     print("Batch distillation assistant")
-    print("Ask a simple batch distillation question, or type exit, quit, or q to stop.")
+    print("Type a question, or type exit, quit, or q to stop.")
 
     while True:
         user_message = input("\nYou: ").strip()

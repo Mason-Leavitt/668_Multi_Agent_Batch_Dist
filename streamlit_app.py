@@ -51,6 +51,9 @@ def main() -> None:
         st.caption(
             "The LLM structures the problem, but deterministic Python tools perform the calculations."
         )
+        st.caption(
+            "Scenario results are illustrative examples for comparing design choices."
+        )
         with st.expander("Remembered knowns", expanded=True):
             st.json(st.session_state.prior_knowns or {})
         if st.session_state.prior_needs_clarification:

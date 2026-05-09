@@ -5,11 +5,11 @@ from engineering.tools import (
 
 SUPPORTED_WORKFLOWS = {
     "solve_D_given_W0_x0_xDavg": {
-        "label": "Target average distillate composition",
+        "label": "Choose a target average distillate composition",
         "problem_type": "solve_D_given_W0_x0_xDavg",
         "description": (
-            "Use this workflow when you know the initial charge, the initial "
-            "ethanol mole fraction, and the average distillate composition you want."
+            "Use this workflow when you know the initial charge amount (W0), the initial "
+            "ethanol mole fraction (x0), and the target average distillate ethanol mole fraction (xDavg_target)."
         ),
         "required_inputs": ["W0", "x0", "xDavg_target"],
         "outputs": ["D", "B", "xB", "xDavg"],
@@ -20,11 +20,11 @@ SUPPORTED_WORKFLOWS = {
         ),
     },
     "solve_batch_given_W0_x0_xB": {
-        "label": "Target final still composition",
+        "label": "Choose a target final still composition",
         "problem_type": "solve_batch_given_W0_x0_xB",
         "description": (
-            "Use this workflow when you know the initial charge, the initial "
-            "ethanol mole fraction, and the final still composition you want to reach."
+            "Use this workflow when you know the initial charge amount (W0), the initial "
+            "ethanol mole fraction (x0), and the final still ethanol mole fraction (xB) you want to reach."
         ),
         "required_inputs": ["W0", "x0", "xB"],
         "outputs": ["D", "B", "xB", "xDavg"],
@@ -38,7 +38,7 @@ SUPPORTED_WORKFLOWS = {
         "problem_type": "check_batch_consistency",
         "description": (
             "Use this workflow when you already have a proposed batch result and "
-            "want to check total balance, component balance, and Rayleigh consistency."
+            "want to check total balance, ethanol component balance, and Rayleigh consistency."
         ),
         "required_inputs": ["W0", "B", "D", "x0", "xB", "xDavg"],
         "outputs": [
@@ -55,13 +55,13 @@ SUPPORTED_WORKFLOWS = {
 }
 
 VARIABLE_DESCRIPTIONS = {
-    "W0": "initial charge amount in the still",
-    "B": "amount remaining in the still",
-    "D": "distillate amount collected",
-    "x0": "initial ethanol mole fraction in the feed",
-    "xB": "final ethanol mole fraction in the still",
-    "xDavg": "average ethanol mole fraction in the distillate",
-    "xDavg_target": "target average ethanol mole fraction in the distillate",
+    "W0": "initial charge amount (W0)",
+    "B": "final still amount (B)",
+    "D": "distillate amount (D)",
+    "x0": "initial ethanol mole fraction (x0)",
+    "xB": "final still ethanol mole fraction (xB)",
+    "xDavg": "average distillate ethanol mole fraction (xDavg)",
+    "xDavg_target": "target average distillate ethanol mole fraction (xDavg_target)",
 }
 
 
@@ -130,11 +130,11 @@ def recommend_next_design_basis(
         return {
             "status": "needs_starting_inputs",
             "recommended_next_question": (
-                "Do you know your initial charge W0 and initial ethanol mole fraction x0?"
+                "Do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
             ),
             "explanation": (
                 "With no starting values yet, the most useful first design basis is the "
-                "initial charge W0 together with the initial feed composition x0."
+                "initial charge amount (W0) together with the initial ethanol mole fraction (x0)."
             ),
             "next_inputs_options": ["W0", "x0"],
         }
@@ -144,7 +144,8 @@ def recommend_next_design_basis(
             "status": "ready_to_calculate",
             "recommended_next_question": (
                 "I have enough information to run the target-average-distillate calculation. "
-                "Would you like me to calculate D, B, and xB?"
+                "Would you like me to calculate the distillate amount (D), the final still amount (B), "
+                "and the final still ethanol mole fraction (xB)?"
             ),
             "explanation": (
                 "The supported target-average-distillate workflow is ready."
@@ -157,7 +158,7 @@ def recommend_next_design_basis(
             "status": "ready_to_calculate",
             "recommended_next_question": (
                 "I have enough information to run the target-final-still-composition calculation. "
-                "Would you like me to calculate D and xDavg?"
+                "Would you like me to calculate the distillate amount (D) and the average distillate ethanol mole fraction (xDavg)?"
             ),
             "explanation": "The supported target-final-still workflow is ready.",
             "next_inputs_options": [],
@@ -178,11 +179,10 @@ def recommend_next_design_basis(
         return {
             "status": "design_prototyping",
             "recommended_next_question": (
-                "Do you know either the initial feed composition x0 or the final still composition xB you want to reach?"
+                "Do you know either the initial ethanol mole fraction (x0) of the feed or the final still ethanol mole fraction (xB) you want to reach?"
             ),
             "explanation": (
-                "D and xDavg_target alone do not uniquely determine the required initial charge "
-                "or feed composition, so one more design basis is needed."
+                "The distillate amount (D) and target average distillate ethanol mole fraction (xDavg_target) alone do not uniquely determine the required initial charge amount or feed composition, so one more design basis is needed."
             ),
             "next_inputs_options": ["x0", "xB"],
         }
@@ -191,10 +191,10 @@ def recommend_next_design_basis(
         return {
             "status": "choose_target",
             "recommended_next_question": (
-                "Do you want to target an average distillate composition xDavg_target or a final still composition xB?"
+                "Do you want to target the average distillate ethanol mole fraction (xDavg_target) or the final still ethanol mole fraction (xB)?"
             ),
             "explanation": (
-                "With W0 and x0 known, the next useful design choice is which target to specify."
+                "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the next useful design choice is which target to specify."
             ),
             "next_inputs_options": ["xDavg_target", "xB"],
         }
@@ -203,7 +203,7 @@ def recommend_next_design_basis(
         return {
             "status": "needs_feed_composition",
             "recommended_next_question": (
-                "Do you know the initial ethanol mole fraction x0 of the feed, and do you want to target xDavg_target or xB?"
+                "Do you know the initial ethanol mole fraction (x0) of the feed, and do you want to target the average distillate ethanol mole fraction (xDavg_target) or the final still ethanol mole fraction (xB)?"
             ),
             "explanation": (
                 "An initial charge amount alone is not enough to run a supported batch-distillation calculation."
@@ -215,7 +215,7 @@ def recommend_next_design_basis(
         return {
             "status": "needs_charge_amount",
             "recommended_next_question": (
-                "Do you know the initial charge W0 in the still, and do you want to target xDavg_target or xB?"
+                "Do you know the initial charge amount (W0) in the still, and do you want to target the average distillate ethanol mole fraction (xDavg_target) or the final still ethanol mole fraction (xB)?"
             ),
             "explanation": (
                 "The initial feed composition alone is not enough to run a supported batch-distillation calculation."
@@ -227,7 +227,7 @@ def recommend_next_design_basis(
         return {
             "status": "needs_starting_inputs",
             "recommended_next_question": (
-                "Do you know your initial charge W0 and initial ethanol mole fraction x0?"
+                "Do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
             ),
             "explanation": (
                 "Those two inputs are the most useful starting basis for the supported workflows."
@@ -240,7 +240,7 @@ def recommend_next_design_basis(
         key=lambda workflow: len([name for name in workflow["required_inputs"] if name not in knowns]),
     )
     missing_inputs = [name for name in closest_workflow["required_inputs"] if name not in knowns]
-    missing_text = ", ".join(missing_inputs)
+    missing_text = ", ".join(VARIABLE_DESCRIPTIONS.get(name, name) for name in missing_inputs)
 
     return {
         "status": "needs_more_inputs",
@@ -316,11 +316,11 @@ def prototype_supported_scenarios(knowns: dict) -> dict:
 
     if "D" in knowns and "xDavg_target" in knowns and ("W0" not in knowns or "x0" not in knowns):
         scenarios["notes"].append(
-            "A target distillate amount D together with xDavg_target still needs another design basis such as x0 or xB before reliable illustrative scenarios can be generated with the currently supported solvers."
+            "A target distillate amount (D) together with a target average distillate ethanol mole fraction (xDavg_target) still needs another design basis such as the initial ethanol mole fraction (x0) or the final still ethanol mole fraction (xB) before reliable illustrative scenarios can be generated with the currently supported solvers."
         )
         return scenarios
 
     scenarios["notes"].append(
-        "Illustrative scenarios are only generated when a supported solver can be exercised with the currently known inputs."
+        "Illustrative scenarios are only generated when a supported solver can be run with the current known inputs."
     )
     return scenarios

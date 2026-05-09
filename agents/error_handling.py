@@ -32,8 +32,8 @@ def normalize_error_for_user(error: Exception | str, context: dict[str, Any] | N
     if missing_inputs:
         missing_text = format_variable_list(missing_inputs)
         return (
-            f"I’m missing {missing_text}, so I can’t run that deterministic calculation yet. "
-            "Please provide those values, or ask me to help choose a design basis first."
+            f"I’m missing {missing_text}, so I can’t run that calculation yet. "
+            "Please provide those values, or ask me to help choose a design basis."
         )
 
     if context.get("problem_type") == "unsupported":
@@ -79,13 +79,13 @@ def normalize_error_for_user(error: Exception | str, context: dict[str, Any] | N
 
     if "could not bracket a solution" in lower_text or "not physically reachable" in lower_text:
         return (
-            "That requested case does not appear reachable with the current deterministic model and VLE data. "
-            "Try a different target composition or ask me to help explore feasible options."
+            "That requested case does not appear reachable with the current model and VLE data. "
+            "Try a different target composition or ask me to help explore options."
         )
 
     if "did not converge" in lower_text:
         return (
-            "The deterministic solver could not converge for that request. "
+            "The solver could not converge for that request. "
             "Try adjusting the target values or ask me to help explore alternatives."
         )
 

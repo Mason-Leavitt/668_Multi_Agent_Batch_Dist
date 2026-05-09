@@ -47,6 +47,14 @@ The LLM does not perform the batch distillation calculations. Deterministic Pyth
 
 The assistant also tries to return user-safe error messages. When a deterministic calculation cannot run yet, it will usually ask for more information or explain the engineering validation issue in user-facing language instead of showing raw internal errors.
 
+## Scope
+
+This project is a batch-distillation assistant for simplified Rayleigh and mole-balance calculations.
+
+- It helps structure simplified calculation requests and route them to deterministic Python tools.
+- The LLM structures the conversation, while deterministic Python tools perform the calculations.
+- Illustrative scenarios are examples to help compare design choices and choose a design basis.
+
 ## Session commands
 
 In the CLI and Streamlit chat, you can manage remembered values in the current session with simple commands:

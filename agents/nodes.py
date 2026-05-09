@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from agents.error_handling import normalize_error_for_user
+from agents.error_handling import VARIABLE_DISPLAY_NAMES, normalize_error_for_user
 from agents.prompts import build_problem_structurer_prompt
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
@@ -105,12 +105,16 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
         )
         question = "Which variable or workflow would you like to clarify first?"
     elif state.get("intent_type") == "open_ended_guidance":
-        intro = "I can help you approach the batch distillation calculation in a few ways."
+        intro = (
+            "I can help you approach a batch-distillation calculation in a few ways."
+        )
         question = (
-            "To start, do you know your initial charge W0 and initial ethanol mole fraction x0?"
+            "To start, do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
         )
     else:
-        intro = "I can help with a few supported batch distillation tasks."
+        intro = (
+            "I can help with a few supported batch-distillation tasks."
+        )
         question = "Which workflow would you like to try?"
 
     final_answer = (
@@ -144,7 +148,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     if knowns:
         known_lines = []
         for name, value in knowns.items():
-            description = VARIABLE_DESCRIPTIONS.get(name, name)
+            description = VARIABLE_DISPLAY_NAMES.get(name, VARIABLE_DESCRIPTIONS.get(name, name))
             if isinstance(value, float):
                 if name in {"W0", "B", "D"}:
                     value_text = f"{value:.3f}"
@@ -152,7 +156,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
                     value_text = f"{value:.6f}"
             else:
                 value_text = str(value)
-            known_lines.append(f"- {name} = {value_text} ({description})")
+            known_lines.append(f"- {description} = {value_text}")
         knowns_block = "Known inputs so far:\n" + "\n".join(known_lines)
     else:
         knowns_block = "Known inputs so far:\n- none yet"
@@ -163,7 +167,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         )
     elif "D" in knowns and "xDavg_target" in knowns and "W0" not in knowns and "x0" not in knowns:
         status_intro = (
-            "Your request is still underdetermined: D and xDavg_target alone do not uniquely determine W0 and x0."
+            "Your request is still underdetermined: the distillate amount (D) and target average distillate ethanol mole fraction (xDavg_target) alone do not uniquely determine the initial charge amount (W0) and initial ethanol mole fraction (x0)."
         )
     else:
         status_intro = (
@@ -172,27 +176,36 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
 
     relevant_workflow_lines = []
     for workflow in analysis["closest_workflows"]:
-        missing_text = ", ".join(workflow["missing_inputs"]) if workflow["missing_inputs"] else "none"
+        required_text = ", ".join(VARIABLE_DISPLAY_NAMES.get(name, name) for name in workflow["required_inputs"])
+        missing_text = (
+            ", ".join(VARIABLE_DISPLAY_NAMES.get(name, name) for name in workflow["missing_inputs"])
+            if workflow["missing_inputs"]
+            else "none"
+        )
         relevant_workflow_lines.append(
-            f"- {workflow['label']}: requires {', '.join(workflow['required_inputs'])}; missing now: {missing_text}."
+            f"- {workflow['label']}: requires {required_text}; missing now: {missing_text}."
         )
 
     scenario_sections = []
     if prototype["avg_distillate_scenarios"]:
-        lines = ["Illustrative target-average-distillate scenarios:"]
+        lines = [
+            "Illustrative example scenarios for target average distillate ethanol mole fraction (xDavg_target):"
+        ]
         for scenario in prototype["avg_distillate_scenarios"]:
             lines.append(
-                "- xDavg_target={xDavg_target:.4f} -> D={D:.3f} mol, B={B:.3f} mol, xB={xB:.6f}".format(
+                "- xDavg_target={xDavg_target:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, final still ethanol mole fraction (xB)={xB:.6f}".format(
                     **scenario
                 )
             )
         scenario_sections.append("\n".join(lines))
 
     if prototype["final_still_scenarios"]:
-        lines = ["Illustrative target-final-still scenarios:"]
+        lines = [
+            "Illustrative example scenarios for final still ethanol mole fraction (xB):"
+        ]
         for scenario in prototype["final_still_scenarios"]:
             lines.append(
-                "- xB={xB:.4f} -> D={D:.3f} mol, B={B:.3f} mol, xDavg={xDavg:.6f}".format(
+                "- xB={xB:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, average distillate ethanol mole fraction (xDavg)={xDavg:.6f}".format(
                     **scenario
                 )
             )
@@ -208,7 +221,9 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     if scenario_sections:
         scenario_block = "\n\n".join(scenario_sections)
         if has_scenario_results:
-            scenario_block += "\n\nThese scenario results are illustrative, not final design recommendations."
+            scenario_block += (
+                "\n\nThese examples help compare design choices."
+            )
     else:
         scenario_block = ""
 
@@ -440,27 +455,27 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
     x0 = result["x0"]
 
     input_summary_lines = [
-        f"- Initial charge, W0 = {W0:.3f} mol",
-        f"- Initial ethanol mole fraction, x0 = {x0:.6f}",
+        f"- Initial charge amount (W0) = {W0:.3f} mol",
+        f"- Initial ethanol mole fraction (x0) = {x0:.6f}",
     ]
 
     if "xDavg_target" in result:
         input_summary_lines.append(
-            f"- Target average distillate ethanol mole fraction = {result['xDavg_target']:.6f}"
+            f"- Target average distillate ethanol mole fraction (xDavg_target) = {result['xDavg_target']:.6f}"
         )
     else:
         input_summary_lines.append(
-            f"- Final still ethanol mole fraction target, xB = {xB:.6f}"
+            f"- Target final still ethanol mole fraction (xB) = {xB:.6f}"
         )
 
     final_answer = (
         "For the batch distillation problem:\n\n"
         + "\n".join(input_summary_lines)
         + "\n\nCalculated result:\n\n"
-        + f"- Distillate collected, D = {D:.3f} mol\n"
-        + f"- Final still amount, B = {B:.3f} mol\n"
-        + f"- Final still ethanol mole fraction, xB = {xB:.6f}\n"
-        + f"- Average distillate ethanol mole fraction, xDavg = {xDavg:.6f}\n\n"
+        + f"- Distillate amount (D) = {D:.3f} mol\n"
+        + f"- Final still amount (B) = {B:.3f} mol\n"
+        + f"- Final still ethanol mole fraction (xB) = {xB:.6f}\n"
+        + f"- Average distillate ethanol mole fraction (xDavg) = {xDavg:.6f}\n\n"
         + "Consistency check:\n\n"
         + f"- Fully consistent: {check.get('is_fully_consistent')}\n"
         + f"- Total balance consistent: {check.get('is_total_balance_consistent')}\n"

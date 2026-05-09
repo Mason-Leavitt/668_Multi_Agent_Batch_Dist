@@ -24,6 +24,8 @@ Do not rely on an arbitrary system Python unless the same dependencies are insta
 
 `graph_demo.py`, `chat_cli.py`, `streamlit_app.py`, and the current `smoke_test_graph.py` all require live OpenAI access.
 
+`smoke_test_graph.py` prints short pass/fail-style output so it is easier to scan during demo verification.
+
 ## Architecture
 
 The assistant uses a LangGraph workflow with a shared deterministic calculation core:
@@ -96,8 +98,7 @@ Partial design request
 
 - Example prompt:
   `"I have 1000 mol at 5 mol% ethanol, help me choose targets."`
-- The assistant can compare the known inputs against the supported workflows, explain what is still missing, and show simple illustrative scenario results when an existing deterministic solver can support them.
-- For partial design requests, the DesignAdvisor can also identify which missing variable could be sampled to explore possible setups.
+- The assistant can compare the known inputs against the supported workflows, explain what is still missing, identify which missing variable could be sampled next, and run compact illustrative scenario results when an existing deterministic solver can support them.
 
 Underdetermined design request
 

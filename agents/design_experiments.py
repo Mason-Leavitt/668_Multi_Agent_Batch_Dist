@@ -1,4 +1,9 @@
 from agents.workflows import VARIABLE_DESCRIPTIONS
+from engineering.tools import (
+    prototype_design_given_D_xDavg,
+    solve_batch_given_W0_x0_xB,
+    solve_D_given_W0_x0_xDavg,
+)
 
 
 def _goal_mentions_options(user_goal: str) -> bool:
@@ -261,3 +266,126 @@ def plan_experiment_from_knowns(
         }
     )
     return result
+
+
+def run_planned_scenarios(
+    knowns: dict[str, float],
+    plan: dict,
+    n: int = 100,
+) -> dict:
+    scenario_result = {
+        "status": "no_scenarios",
+        "sampled_variable": plan.get("recommended_sampling_variable"),
+        "rows": [],
+        "notes": [],
+        "is_illustrative_only": True,
+    }
+
+    if plan.get("status") != "sample_possible":
+        scenario_result["notes"].append(
+            "Scenario sampling is only available when the current plan supports a single illustrative sampling path."
+        )
+        return scenario_result
+
+    recommended_variable = plan.get("recommended_sampling_variable")
+    sample_values = plan.get("sample_values", {})
+
+    if {"D", "xDavg_target", "x0"}.issubset(knowns) and recommended_variable == "xB":
+        prototype = prototype_design_given_D_xDavg(
+            D_target=knowns["D"],
+            xDavg_target=knowns["xDavg_target"],
+            x0_options=[knowns["x0"]],
+            xB_options=sample_values.get("xB"),
+            n=n,
+        )
+        for scenario in prototype["scenarios"][:5]:
+            scenario_result["rows"].append(
+                {
+                    "sampled_variable": "xB",
+                    "sampled_value": scenario["xB"],
+                    "W0": scenario["W0"],
+                    "B": scenario["B"],
+                    "D": scenario["D"],
+                    "x0": scenario["x0"],
+                    "xB": scenario["xB"],
+                    "xDavg": knowns["xDavg_target"],
+                    "is_fully_consistent": scenario.get("is_fully_consistent"),
+                    "rayleigh_error": scenario.get("rayleigh_error"),
+                    "status": "consistent" if scenario.get("is_fully_consistent") else "inconsistent",
+                    "note": "",
+                }
+            )
+        scenario_result["notes"].extend(prototype.get("notes", []))
+        scenario_result["status"] = "ok" if scenario_result["rows"] else "no_scenarios"
+        return scenario_result
+
+    if {"W0", "x0"}.issubset(knowns):
+        if recommended_variable in {"both", "xDavg_target", None}:
+            for xDavg_target in sample_values.get("xDavg_target", [])[:3]:
+                try:
+                    result = solve_D_given_W0_x0_xDavg(
+                        W0=knowns["W0"],
+                        x0=knowns["x0"],
+                        xDavg_target=xDavg_target,
+                        n=n,
+                    )
+                    scenario_result["rows"].append(
+                        {
+                            "sampled_variable": "xDavg_target",
+                            "sampled_value": xDavg_target,
+                            "D": result["D"],
+                            "B": result["B"],
+                            "xB": result["xB"],
+                            "xDavg": result["xDavg"],
+                            "status": "consistent",
+                            "note": "",
+                        }
+                    )
+                except Exception as exc:
+                    scenario_result["rows"].append(
+                        {
+                            "sampled_variable": "xDavg_target",
+                            "sampled_value": xDavg_target,
+                            "status": "error",
+                            "note": str(exc),
+                        }
+                    )
+
+        if recommended_variable in {"both", "xB"}:
+            for xB in sample_values.get("xB", [])[:3]:
+                try:
+                    result = solve_batch_given_W0_x0_xB(
+                        W0=knowns["W0"],
+                        x0=knowns["x0"],
+                        xB=xB,
+                        n=n,
+                    )
+                    scenario_result["rows"].append(
+                        {
+                            "sampled_variable": "xB",
+                            "sampled_value": xB,
+                            "D": result["D"],
+                            "B": result["B"],
+                            "xB": result["xB"],
+                            "xDavg": result["xDavg"],
+                            "status": "consistent",
+                            "note": "",
+                        }
+                    )
+                except Exception as exc:
+                    scenario_result["rows"].append(
+                        {
+                            "sampled_variable": "xB",
+                            "sampled_value": xB,
+                            "status": "error",
+                            "note": str(exc),
+                        }
+                    )
+
+        scenario_result["status"] = "ok" if scenario_result["rows"] else "no_scenarios"
+        return scenario_result
+
+    scenario_result["notes"].append(
+        "No compact deterministic sampling path is available for the current known inputs."
+    )
+    return scenario_result

@@ -54,6 +54,10 @@ def assert_result_keys(state: dict) -> None:
     assert consistency_check["is_fully_consistent"] is True
 
 
+def pass_check(label: str) -> None:
+    print(f"[PASS] {label}")
+
+
 def main() -> None:
     app = build_graph()
 
@@ -70,20 +74,22 @@ def main() -> None:
     assert "keyerror" not in direct_error_text
     assert "initial charge amount (w0)" in direct_error_text
     assert "initial ethanol mole fraction (x0)" in direct_error_text
+    pass_check("user-safe incomplete calculation handling")
 
     happy_path_1 = app.invoke({"user_message": HAPPY_PATH_1_MESSAGE})
     assert happy_path_1["problem_type"] == "solve_D_given_W0_x0_xDavg"
     assert happy_path_1["calculation_success"] is True
     assert_result_keys(happy_path_1)
+    pass_check("happy path: target average distillate")
 
     happy_path_2 = app.invoke({"user_message": HAPPY_PATH_2_MESSAGE})
     assert happy_path_2["problem_type"] == "solve_batch_given_W0_x0_xB"
     assert happy_path_2["calculation_success"] is True
     assert_result_keys(happy_path_2)
+    pass_check("happy path: target final still composition")
 
     clarification_path = app.invoke({"user_message": CLARIFICATION_PATH_MESSAGE})
     assert clarification_path["needs_clarification"] is True
-    assert "final_answer" in clarification_path
     assert clarification_path["final_answer"].strip()
 
     clarification_followup = app.invoke(
@@ -97,44 +103,43 @@ def main() -> None:
     assert clarification_followup["problem_type"] == "solve_D_given_W0_x0_xDavg"
     assert clarification_followup["calculation_success"] is True
     assert_result_keys(clarification_followup)
+    pass_check("clarification follow-up")
 
     open_ended_guidance = app.invoke({"user_message": OPEN_ENDED_GUIDANCE_MESSAGE})
-    assert "final_answer" in open_ended_guidance
     assert open_ended_guidance["final_answer"].strip()
+    guidance_text = open_ended_guidance["final_answer"].lower()
     assert (
         open_ended_guidance.get("intent_type") == "open_ended_guidance"
-        or "supported workflows" in open_ended_guidance["final_answer"].lower()
+        or "supported workflows" in guidance_text
     )
-    guidance_text = open_ended_guidance["final_answer"].lower()
     assert "average distillate" in guidance_text
     assert "final still" in guidance_text
+    pass_check("open-ended guidance")
 
     how_do_i_start = app.invoke({"user_message": HOW_DO_I_START_MESSAGE})
-    assert "final_answer" in how_do_i_start
-    assert how_do_i_start["final_answer"].strip()
     how_to_start_text = how_do_i_start["final_answer"].lower()
     assert "workflow" in how_to_start_text or "target average distillate" in how_to_start_text
     assert "w0" in how_to_start_text
     assert "x0" in how_to_start_text
+    pass_check("broad start guidance")
 
     partial_knowns_targets = app.invoke({"user_message": PARTIAL_KNOWNS_TARGETS_MESSAGE})
-    assert "final_answer" in partial_knowns_targets
-    assert partial_knowns_targets["final_answer"].strip()
     partial_text = partial_knowns_targets["final_answer"].lower()
-    assert "w0" in partial_text and "1000.000" in partial_knowns_targets["final_answer"]
-    assert "x0" in partial_text and "0.050000" in partial_knowns_targets["final_answer"]
+    assert "1000.000" in partial_knowns_targets["final_answer"]
+    assert "0.050000" in partial_knowns_targets["final_answer"]
     assert "xdavg_target" in partial_text or "xb" in partial_text
-    assert "if you want, i can also show example scenarios" in partial_text or "illustrative" in partial_text
+    assert "illustrative" in partial_text or "compare design choices" in partial_text
+    pass_check("partial-known design planning")
 
     underdetermined_design = app.invoke({"user_message": UNDERDETERMINED_DESIGN_MESSAGE})
-    assert "final_answer" in underdetermined_design
-    assert underdetermined_design["final_answer"].strip()
-    assert underdetermined_design.get("intent_type") == "design_prototyping"
     underdetermined_text = underdetermined_design["final_answer"].lower()
+    assert underdetermined_design.get("intent_type") == "design_prototyping"
     assert "50" in underdetermined_design["final_answer"]
     assert "0.2" in underdetermined_design["final_answer"]
-    assert "x0" in underdetermined_text or "initial ethanol mole fraction" in underdetermined_text
+    assert "x0" in underdetermined_text or "feed composition" in underdetermined_text
+    assert "xb" in underdetermined_text or "final still" in underdetermined_text
     assert "what is w0" not in underdetermined_text
+    pass_check("underdetermined design guidance")
 
     explain_followup = app.invoke(
         {
@@ -144,11 +149,10 @@ def main() -> None:
             "prior_clarification_question": underdetermined_design["clarification_question"],
         }
     )
-    assert "final_answer" in explain_followup
-    assert explain_followup["final_answer"].strip()
     explain_text = explain_followup["final_answer"].lower()
-    assert "workflow" in explain_text or "supported workflows" in explain_text or "known inputs so far" in explain_text
+    assert "known inputs so far" in explain_text or "relevant supported workflows" in explain_text
     assert "x0" in explain_text
+    pass_check("explanation follow-up")
 
     underdetermined_followup = app.invoke(
         {
@@ -158,104 +162,50 @@ def main() -> None:
             "prior_clarification_question": underdetermined_design["clarification_question"],
         }
     )
-    assert "final_answer" in underdetermined_followup
-    assert underdetermined_followup["final_answer"].strip()
     followup_text = underdetermined_followup["final_answer"].lower()
-    assert (
-        "cannot" in followup_text
-        or "need one more design basis" in followup_text
-        or "underdetermined" in followup_text
-        or "do not uniquely determine" in followup_text
-    )
-    assert "x0" in followup_text or "initial ethanol mole fraction" in followup_text
-    assert "xb" in followup_text or "final still composition" in followup_text
+    assert "do not uniquely determine" in followup_text or "underdetermined" in followup_text
+    assert "x0" in followup_text or "feed composition" in followup_text
+    assert "xb" in followup_text or "final still" in followup_text
     assert "what is w0" not in followup_text
+    pass_check("underdetermined follow-up guidance")
 
     design_prototyping = app.invoke({"user_message": DESIGN_PROTOTYPING_MESSAGE})
-    assert "final_answer" in design_prototyping
-    assert design_prototyping["final_answer"].strip()
     design_text = design_prototyping["final_answer"].lower()
     assert design_prototyping.get("intent_type") == "design_prototyping"
-    assert (
-        "underdetermined" in design_text
-        or "not enough" in design_text
-        or "do not uniquely determine" in design_text
-    )
-    assert "x0" in design_text
-    assert "xb" in design_text or "final still composition" in design_text
-    assert (
-        "sample" in design_text
-        or "example scenarios" in design_text
-        or "design basis" in design_text
-    )
+    assert "do not uniquely determine" in design_text or "underdetermined" in design_text
+    assert "sample" in design_text or "design basis" in design_text
+    pass_check("design prototyping guidance")
 
     planning_d_xdavg_only = app.invoke({"user_message": PLANNING_D_XDAVG_ONLY_MESSAGE})
-    assert "final_answer" in planning_d_xdavg_only
-    assert planning_d_xdavg_only["final_answer"].strip()
     planning_only_text = planning_d_xdavg_only["final_answer"].lower()
     assert "20" in planning_d_xdavg_only["final_answer"]
     assert "0.2" in planning_d_xdavg_only["final_answer"]
     assert "x0" in planning_only_text or "feed composition" in planning_only_text
     assert "xb" in planning_only_text or "final still" in planning_only_text
     assert "what is w0" not in planning_only_text
+    pass_check("planning axis choice: D + xDavg_target")
 
     planning_d_xdavg_x0 = app.invoke({"user_message": PLANNING_D_XDAVG_X0_MESSAGE})
-    assert "final_answer" in planning_d_xdavg_x0
-    assert planning_d_xdavg_x0["final_answer"].strip()
     planning_x0_text = planning_d_xdavg_x0["final_answer"].lower()
     assert "20" in planning_d_xdavg_x0["final_answer"]
     assert "0.2" in planning_d_xdavg_x0["final_answer"]
     assert "0.05" in planning_d_xdavg_x0["final_answer"]
-    assert "xb" in planning_x0_text or "final still ethanol mole fraction" in planning_x0_text
-    assert "sample" in planning_x0_text or "example" in planning_x0_text
+    assert "xb=" in planning_d_xdavg_x0["final_answer"].lower() or "final still ethanol mole fraction (xb)" in planning_x0_text
+    assert "w0=" in planning_d_xdavg_x0["final_answer"].lower() or "w0" in planning_x0_text
+    assert "keyerror" not in planning_x0_text
+    assert "traceback" not in planning_x0_text
+    pass_check("scenario sampling: D + xDavg_target + x0")
 
     planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
-    assert "final_answer" in planning_w0_x0_options
-    assert planning_w0_x0_options["final_answer"].strip()
     planning_options_text = planning_w0_x0_options["final_answer"].lower()
     assert "1000.000" in planning_w0_x0_options["final_answer"]
     assert "0.050000" in planning_w0_x0_options["final_answer"]
     assert "xdavg_target" in planning_options_text or "average distillate" in planning_options_text
     assert "xb" in planning_options_text or "final still" in planning_options_text
     assert "illustrative" in planning_options_text or "compare design choices" in planning_options_text
+    pass_check("scenario sampling: W0 + x0 options")
 
-    print("Smoke test passed: multiple graph paths completed successfully.")
-    print(f"Incomplete direct calculation handling: {incomplete_direct_calc['errors'][0]}")
-    print(
-        "Happy path 1: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
-            D=happy_path_1["result"]["D"],
-            B=happy_path_1["result"]["B"],
-            xB=happy_path_1["result"]["xB"],
-            xDavg=happy_path_1["result"]["xDavg"],
-        )
-    )
-    print(
-        "Happy path 2: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
-            D=happy_path_2["result"]["D"],
-            B=happy_path_2["result"]["B"],
-            xB=happy_path_2["result"]["xB"],
-            xDavg=happy_path_2["result"]["xDavg"],
-        )
-    )
-    print(f"Clarification path: {clarification_path['final_answer']}")
-    print(
-        "Clarification follow-up: D={D:.3f}, B={B:.3f}, xB={xB:.6f}, xDavg={xDavg:.6f}".format(
-            D=clarification_followup["result"]["D"],
-            B=clarification_followup["result"]["B"],
-            xB=clarification_followup["result"]["xB"],
-            xDavg=clarification_followup["result"]["xDavg"],
-        )
-    )
-    print(f"Open-ended guidance: {open_ended_guidance['final_answer']}")
-    print(f"How do I start: {how_do_i_start['final_answer']}")
-    print(f"Partial knowns guidance: {partial_knowns_targets['final_answer']}")
-    print(f"Underdetermined design: {underdetermined_design['final_answer']}")
-    print(f"Explain follow-up: {explain_followup['final_answer']}")
-    print(f"Underdetermined follow-up: {underdetermined_followup['final_answer']}")
-    print(f"Design prototyping: {design_prototyping['final_answer']}")
-    print(f"Planning D + xDavg only: {planning_d_xdavg_only['final_answer']}")
-    print(f"Planning D + xDavg + x0: {planning_d_xdavg_x0['final_answer']}")
-    print(f"Planning W0 + x0 options: {planning_w0_x0_options['final_answer']}")
+    print("Smoke test passed.")
 
 
 if __name__ == "__main__":

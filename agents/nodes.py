@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from agents.design_experiments import plan_experiment_from_knowns
+from agents.design_experiments import plan_experiment_from_knowns, run_planned_scenarios
 from agents.error_handling import VARIABLE_DISPLAY_NAMES, normalize_error_for_user
 from agents.prompts import build_problem_structurer_prompt
 from agents.response_style import wants_detailed_explanation
@@ -13,7 +13,6 @@ from agents.workflows import (
     SUPPORTED_WORKFLOWS,
     VARIABLE_DESCRIPTIONS,
     analyze_knowns_against_workflows,
-    prototype_supported_scenarios,
 )
 from engineering.tools import (
     check_batch_consistency,
@@ -163,10 +162,6 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     user_message = state.get("user_message", "")
     user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
-    wants_examples = any(
-        phrase in user_message.lower()
-        for phrase in ("example", "examples", "show", "options", "compare", "help me choose")
-    )
 
     analysis = analyze_knowns_against_workflows(
         knowns=knowns,
@@ -177,7 +172,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         requested_outputs=unknowns,
         user_goal=user_goal,
     )
-    prototype = prototype_supported_scenarios(knowns)
+    planned_scenarios = run_planned_scenarios(knowns=knowns, plan=experiment_plan, n=100)
 
     if knowns:
         known_lines = []
@@ -221,49 +216,53 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
             f"- {workflow['label']}: requires {required_text}; missing now: {missing_text}."
         )
 
-    scenario_sections = []
-    compact_example_lines = []
-    if prototype["avg_distillate_scenarios"]:
-        lines = [
-            "Illustrative example scenarios for target average distillate ethanol mole fraction (xDavg_target):"
-        ]
-        for scenario in prototype["avg_distillate_scenarios"]:
-            line = "- xDavg_target={xDavg_target:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, final still ethanol mole fraction (xB)={xB:.6f}".format(
-                **scenario
+    def format_scenario_row(row: dict) -> str:
+        sampled_variable = row.get("sampled_variable")
+        status = row.get("status", "unknown")
+        sample_value = row.get("sampled_value")
+        if sampled_variable == "xB" and "W0" in row:
+            line = (
+                f"xB={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
+                f"B={row['B']:.3f} mol, check={status}"
             )
-            lines.append(line)
-            if len(compact_example_lines) < 2:
-                compact_example_lines.append(line)
-        scenario_sections.append("\n".join(lines))
-
-    if prototype["final_still_scenarios"]:
-        lines = [
-            "Illustrative example scenarios for final still ethanol mole fraction (xB):"
-        ]
-        for scenario in prototype["final_still_scenarios"]:
-            line = "- xB={xB:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, average distillate ethanol mole fraction (xDavg)={xDavg:.6f}".format(
-                **scenario
+            if row.get("rayleigh_error") is not None:
+                line += f", rayleigh_error={row['rayleigh_error']:.6g}"
+            return line
+        if sampled_variable == "xDavg_target":
+            line = (
+                f"xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+                f"B={row.get('B', 0):.3f} mol, xB={row.get('xB', 0):.6f}, status={status}"
             )
-            lines.append(line)
-            if len(compact_example_lines) < 4:
-                compact_example_lines.append(line)
-        scenario_sections.append("\n".join(lines))
-
-    if prototype["notes"]:
-        scenario_sections.append("Notes:\n" + "\n".join(f"- {note}" for note in prototype["notes"]))
-
-    has_scenario_results = bool(
-        prototype["avg_distillate_scenarios"] or prototype["final_still_scenarios"]
-    )
-
-    if scenario_sections:
-        scenario_block = "\n\n".join(scenario_sections)
-        if has_scenario_results:
-            scenario_block += (
-                "\n\nThese examples help compare design choices."
+            if row.get("note"):
+                line += f" ({row['note']})"
+            return line
+        if sampled_variable == "xB":
+            line = (
+                f"xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+                f"B={row.get('B', 0):.3f} mol, xDavg={row.get('xDavg', 0):.6f}, status={status}"
             )
-    else:
-        scenario_block = ""
+            if row.get("note"):
+                line += f" ({row['note']})"
+            return line
+        return f"{sampled_variable}={sample_value} -> status={status}"
+
+    compact_example_lines = [
+        "- " + format_scenario_row(row) for row in planned_scenarios["rows"][:5]
+    ]
+    scenario_block = ""
+    if compact_example_lines:
+        scenario_block = (
+            "Illustrative example scenarios:\n" + "\n".join(compact_example_lines)
+        )
+        if planned_scenarios["notes"]:
+            scenario_block += "\n\nNotes:\n" + "\n".join(
+                f"- {note}" for note in planned_scenarios["notes"]
+            )
+        scenario_block += "\n\nThese are illustrative examples to compare design choices."
+    elif planned_scenarios["notes"]:
+        scenario_block = "Notes:\n" + "\n".join(
+            f"- {note}" for note in planned_scenarios["notes"]
+        )
 
     planning_lines = []
     if experiment_plan["candidate_sampling_variables"]:
@@ -322,14 +321,12 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         brief_parts = [knowns_summary, experiment_plan["reason"], experiment_plan["next_question"]]
         final_answer = "\n\n".join(part for part in brief_parts if part)
 
-        if plan_status == "sample_possible" and wants_examples and compact_example_lines:
+        if plan_status == "sample_possible" and compact_example_lines:
             final_answer += (
                 "\n\nIllustrative example scenarios:\n"
                 + "\n".join(compact_example_lines[:3])
-                + "\n\nThese examples help compare design choices."
+                + "\n\nThese are illustrative examples to compare design choices."
             )
-        elif plan_status == "sample_possible" and compact_example_lines:
-            final_answer += "\n\nIf you want, I can also show example scenarios."
         elif plan_status == "sample_possible" and experiment_plan["sample_values"]:
             sample_text_lines = []
             for variable_name, values in experiment_plan["sample_values"].items():

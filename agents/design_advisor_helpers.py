@@ -17,12 +17,14 @@ CONFIRM_COMMIT_MESSAGES = {
     "use that",
     "go with it",
     "that works",
+    "looks good",
 }
 
 REJECT_COMMIT_MESSAGES = {
     "no",
     "cancel",
     "don't use it",
+    "do not use it",
     "dont use it",
     "choose another",
     "not that one",
@@ -235,21 +237,55 @@ def handle_experiment_followup(
         row = experiment_results[option_index - 1]
         sampled_variable = row.get("sampled_variable", experiment_sampled_variable)
         sampled_value = row.get("sampled_value")
+        product_bits = []
+        if row.get("D") is not None:
+            product_bits.append(f"distillate amount (D) = {row['D']:.3f} mol")
+        if row.get("xDavg") is not None:
+            product_bits.append(
+                f"average distillate ethanol mole fraction (xDavg) = {row['xDavg']:.6f}"
+            )
+        if row.get("D_percent_of_feed") is not None:
+            product_bits.append(f"distillate/feed ratio (D/W0) = {row['D_percent_of_feed']:.1f}%")
+        if row.get("W0") is not None:
+            product_bits.append(f"initial charge amount (W0) = {row['W0']:.3f} mol")
+
+        supporting_bits = []
+        if sampled_variable is not None and sampled_value is not None:
+            supporting_bits.append(
+                f"{VARIABLE_DISPLAY_NAMES.get(sampled_variable, sampled_variable)} = {sampled_value:.4f}"
+            )
+        if row.get("B") is not None:
+            supporting_bits.append(f"final still amount (B) = {row['B']:.3f} mol")
+        if row.get("xB") is not None and sampled_variable != "xB":
+            supporting_bits.append(
+                f"final still ethanol mole fraction (xB) = {row['xB']:.6f}"
+            )
+
+        product_text = "; ".join(product_bits) if product_bits else "the current product-side outputs"
+        supporting_text = (
+            " Supporting details: " + "; ".join(supporting_bits) + "."
+            if supporting_bits
+            else ""
+        )
         if sampled_variable == "xB":
             final_answer = (
                 f"Option {option_index} uses final still ethanol mole fraction (xB) = {sampled_value:.4f}. "
-                f"That gives initial charge amount (W0) = {row.get('W0', 0):.3f} mol and final still amount (B) = {row.get('B', 0):.3f} mol. "
+                f"That gives {product_text}."
+                f"{supporting_text} "
                 f"Should I use xB = {sampled_value:.4f} as the design basis going forward?"
             )
         elif sampled_variable == "x0":
             final_answer = (
                 f"Option {option_index} uses initial ethanol mole fraction (x0) = {sampled_value:.4f}. "
-                f"That gives initial charge amount (W0) = {row.get('W0', 0):.3f} mol and final still amount (B) = {row.get('B', 0):.3f} mol. "
+                f"That gives {product_text}."
+                f"{supporting_text} "
                 f"Should I use x0 = {sampled_value:.4f} as the design basis going forward?"
             )
         else:
             final_answer = (
-                f"Option {option_index} uses {sampled_variable} = {sampled_value:.4f}. "
+                f"Option {option_index} uses {VARIABLE_DISPLAY_NAMES.get(sampled_variable, sampled_variable)} = {sampled_value:.4f}. "
+                f"That gives {product_text}."
+                f"{supporting_text} "
                 "Should I use that as the design basis going forward?"
             )
         return {

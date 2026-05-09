@@ -243,6 +243,8 @@ def main() -> None:
     assert "option 2" in use_option_text
     assert "xb" in use_option_text
     assert "should i use" in use_option_text
+    assert "distillate amount (d)" in use_option_text or "average distillate ethanol mole fraction (xdavg)" in use_option_text
+    assert "distillate/feed ratio (d/w0)" in use_option_text
     assert use_option_2.get("pending_commit_variable") == "xB"
     assert abs((use_option_2.get("pending_commit_value") or 0.0) - 0.005) < 1e-12
     pass_check("experiment follow-up: use option 2")
@@ -391,7 +393,21 @@ def main() -> None:
         or "second" in choose_second_text
         or "which option" in choose_second_text
     )
+    assert choose_second_one.get("pending_commit_variable") == "xB"
+    assert abs((choose_second_one.get("pending_commit_value") or 0.0) - 0.005) < 1e-12
     pass_check("natural follow-up: choose second one")
+
+    confirm_choose_second = app.invoke(
+        {
+            "user_message": "looks good",
+            **experiment_context_from_state(choose_second_one),
+        }
+    )
+    confirm_choose_second_text = confirm_choose_second["final_answer"].lower()
+    assert "i'll use" in confirm_choose_second_text or "going forward" in confirm_choose_second_text
+    assert abs(confirm_choose_second["knowns"].get("xB", 0.0) - 0.005) < 1e-12
+    assert confirm_choose_second.get("pending_commit_variable") is None
+    pass_check("natural follow-up: choose second then confirm")
 
     what_if_xb = app.invoke(
         {

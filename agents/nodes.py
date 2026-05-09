@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 
 from agents.error_handling import VARIABLE_DISPLAY_NAMES, normalize_error_for_user
 from agents.prompts import build_problem_structurer_prompt
+from agents.response_style import wants_detailed_explanation
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
 from agents.workflows import (
@@ -84,6 +85,13 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
     """
     Handles broad orientation, conceptual help, and unsupported requests.
     """
+    user_message = state.get("user_message", "")
+    wants_detail = wants_detailed_explanation(user_message)
+    wants_options = any(
+        phrase in user_message.lower()
+        for phrase in ("how do i start", "what can you do", "show me my options", "options")
+    )
+
     workflow_lines = []
     for workflow in SUPPORTED_WORKFLOWS.values():
         workflow_lines.append(
@@ -92,38 +100,52 @@ def guidance_responder_node(state: BatchDistillationState) -> BatchDistillationS
         )
 
     if state.get("needs_clarification", False):
-        intro = (
-            "I need one more piece of information before I can run a deterministic calculation."
-        )
         question = state.get(
             "clarification_question",
             "What additional information do you want to provide?",
         )
+        if wants_detail:
+            final_answer = (
+                "I need one more piece of information before I can run that calculation.\n\n"
+                + "\n".join(workflow_lines)
+                + "\n\n"
+                + question
+            )
+        else:
+            final_answer = (
+                "I need one more piece of information before I can run that calculation.\n\n"
+                + question
+            )
     elif state.get("intent_type") == "conceptual_question":
-        intro = (
-            "I can help explain the supported batch distillation workflows and the inputs they use."
-        )
-        question = "Which variable or workflow would you like to clarify first?"
+        if wants_detail:
+            final_answer = (
+                "I can explain the variables and supported workflows.\n\n"
+                + "\n".join(workflow_lines)
+                + "\n\nWhich variable or workflow would you like to clarify first?"
+            )
+        else:
+            final_answer = "I can explain the variables or the workflow options. What would you like to clarify?"
     elif state.get("intent_type") == "open_ended_guidance":
-        intro = (
-            "I can help you approach a batch-distillation calculation in a few ways."
-        )
-        question = (
-            "To start, do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
-        )
+        if wants_detail or wants_options:
+            final_answer = (
+                "I can help you choose a calculation path.\n\nSupported workflows:\n"
+                + "\n".join(workflow_lines)
+                + "\n\nTo start, do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
+            )
+        else:
+            final_answer = (
+                "I can help you choose a calculation path, such as targeting the average distillate composition or the final still composition. "
+                "To start, do you know the initial charge amount (W0) and the initial ethanol mole fraction (x0)?"
+            )
     else:
-        intro = (
-            "I can help with a few supported batch-distillation tasks."
-        )
-        question = "Which workflow would you like to try?"
-
-    final_answer = (
-        intro
-        + "\n\nSupported workflows:\n"
-        + "\n".join(workflow_lines)
-        + "\n\n"
-        + question
-    )
+        if wants_detail:
+            final_answer = (
+                "I can help with a few supported batch-distillation tasks.\n\nSupported workflows:\n"
+                + "\n".join(workflow_lines)
+                + "\n\nWhich workflow would you like to try?"
+            )
+        else:
+            final_answer = "I can help with a few supported batch-distillation tasks. Which workflow would you like to try?"
 
     return {
         "guidance_response": final_answer,
@@ -137,6 +159,12 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     """
     knowns = state.get("knowns", {})
     unknowns = state.get("unknowns", [])
+    user_message = state.get("user_message", "")
+    wants_detail = wants_detailed_explanation(user_message)
+    wants_examples = any(
+        phrase in user_message.lower()
+        for phrase in ("example", "examples", "show", "options", "compare", "help me choose")
+    )
 
     analysis = analyze_knowns_against_workflows(
         knowns=knowns,
@@ -147,6 +175,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
 
     if knowns:
         known_lines = []
+        short_known_bits = []
         for name, value in knowns.items():
             description = VARIABLE_DISPLAY_NAMES.get(name, VARIABLE_DESCRIPTIONS.get(name, name))
             if isinstance(value, float):
@@ -157,9 +186,12 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
             else:
                 value_text = str(value)
             known_lines.append(f"- {description} = {value_text}")
+            short_known_bits.append(f"{description} = {value_text}")
         knowns_block = "Known inputs so far:\n" + "\n".join(known_lines)
+        knowns_summary = "You gave " + "; ".join(short_known_bits) + "."
     else:
         knowns_block = "Known inputs so far:\n- none yet"
+        knowns_summary = "You have not given any numeric inputs yet."
 
     if analysis["ready_workflows"]:
         status_intro = (
@@ -187,16 +219,18 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         )
 
     scenario_sections = []
+    compact_example_lines = []
     if prototype["avg_distillate_scenarios"]:
         lines = [
             "Illustrative example scenarios for target average distillate ethanol mole fraction (xDavg_target):"
         ]
         for scenario in prototype["avg_distillate_scenarios"]:
-            lines.append(
-                "- xDavg_target={xDavg_target:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, final still ethanol mole fraction (xB)={xB:.6f}".format(
-                    **scenario
-                )
+            line = "- xDavg_target={xDavg_target:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, final still ethanol mole fraction (xB)={xB:.6f}".format(
+                **scenario
             )
+            lines.append(line)
+            if len(compact_example_lines) < 2:
+                compact_example_lines.append(line)
         scenario_sections.append("\n".join(lines))
 
     if prototype["final_still_scenarios"]:
@@ -204,11 +238,12 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
             "Illustrative example scenarios for final still ethanol mole fraction (xB):"
         ]
         for scenario in prototype["final_still_scenarios"]:
-            lines.append(
-                "- xB={xB:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, average distillate ethanol mole fraction (xDavg)={xDavg:.6f}".format(
-                    **scenario
-                )
+            line = "- xB={xB:.4f} -> distillate amount (D)={D:.3f} mol, final still amount (B)={B:.3f} mol, average distillate ethanol mole fraction (xDavg)={xDavg:.6f}".format(
+                **scenario
             )
+            lines.append(line)
+            if len(compact_example_lines) < 4:
+                compact_example_lines.append(line)
         scenario_sections.append("\n".join(lines))
 
     if prototype["notes"]:
@@ -227,20 +262,33 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     else:
         scenario_block = ""
 
-    final_answer = (
-        status_intro
-        + "\n\n"
-        + knowns_block
-        + "\n\nRelevant supported workflows:\n"
-        + "\n".join(relevant_workflow_lines)
-        + "\n\n"
-        + recommendation["explanation"]
-    )
+    if wants_detail:
+        final_answer = (
+            status_intro
+            + "\n\n"
+            + knowns_block
+            + "\n\nRelevant supported workflows:\n"
+            + "\n".join(relevant_workflow_lines)
+            + "\n\n"
+            + recommendation["explanation"]
+        )
 
-    if scenario_block:
-        final_answer += "\n\n" + scenario_block
+        if scenario_block:
+            final_answer += "\n\n" + scenario_block
 
-    final_answer += "\n\n" + recommendation["recommended_next_question"]
+        final_answer += "\n\n" + recommendation["recommended_next_question"]
+    else:
+        brief_parts = [knowns_summary, recommendation["explanation"], recommendation["recommended_next_question"]]
+        final_answer = "\n\n".join(part for part in brief_parts if part)
+
+        if wants_examples and compact_example_lines:
+            final_answer += (
+                "\n\nIllustrative example scenarios:\n"
+                + "\n".join(compact_example_lines[:3])
+                + "\n\nThese examples help compare design choices."
+            )
+        elif compact_example_lines:
+            final_answer += "\n\nIf you want, I can also show example scenarios."
 
     return {
         "guidance_response": final_answer,
@@ -490,9 +538,15 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
+    user_message = state.get("user_message", "")
 
     # Partial-knowns and underdetermined design requests go to the design advisor.
     if intent_type == "design_prototyping":
+        return "design_advisor"
+
+    # Explanation requests with remembered design knowns are often best answered
+    # by the design advisor in the current problem context.
+    if wants_detailed_explanation(user_message) and state.get("knowns"):
         return "design_advisor"
 
     # Broad orientation, conceptual help, and unsupported requests go to guidance.

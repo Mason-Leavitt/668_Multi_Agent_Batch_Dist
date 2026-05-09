@@ -4,6 +4,8 @@
 
 `smoke_test_graph.py` is an LLM-integration smoke test that checks multiple graph paths, including successful solve paths and a clarification path.
 
+Normal responses are concise by default. If you want a fuller explanation, you can ask with phrases like `explain`, `I don't understand`, or `walk me through it`.
+
 ## Setup
 
 1. Run `uv sync`.

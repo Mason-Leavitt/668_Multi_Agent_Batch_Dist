@@ -41,6 +41,60 @@ def _sample_x0_values(xB: float | None) -> list[float]:
     return [value for value in values if value > xB]
 
 
+def build_sample_possible_plan(
+    knowns: dict[str, float],
+    sampled_variable: str,
+    sample_values: list[float],
+    reason: str,
+    next_question: str,
+) -> dict:
+    return {
+        "status": "sample_possible",
+        "knowns": dict(knowns),
+        "candidate_sampling_variables": [sampled_variable],
+        "recommended_sampling_variable": sampled_variable,
+        "sample_values": {sampled_variable: sample_values[:5]},
+        "sample_values_are_illustrative": True,
+        "reason": reason,
+        "next_question": next_question,
+        "recommended_workflow": None,
+    }
+
+
+def shifted_sample_values(
+    sampled_variable: str,
+    current_values: list[float],
+    knowns: dict[str, float],
+    direction: str,
+) -> list[float]:
+    candidate_pools = {
+        "xB": [0.0025, 0.0050, 0.0070, 0.0100, 0.0150, 0.0200, 0.0300, 0.0400],
+        "x0": [0.03, 0.05, 0.07, 0.10, 0.15, 0.20],
+        "xDavg_target": [0.10, 0.12, 0.15, 0.18, 0.20, 0.25],
+    }
+    pool = candidate_pools.get(sampled_variable, [])
+    if not pool or not current_values:
+        return []
+
+    if direction == "higher":
+        threshold = max(current_values)
+        values = [value for value in pool if value > threshold]
+    else:
+        threshold = min(current_values)
+        values = [value for value in pool if value < threshold]
+
+    if sampled_variable == "xB" and "x0" in knowns:
+        values = [value for value in values if value < knowns["x0"]]
+    if sampled_variable == "x0" and "xB" in knowns:
+        values = [value for value in values if value > knowns["xB"]]
+    if sampled_variable == "xDavg_target" and "x0" in knowns:
+        values = [value for value in values if value > knowns["x0"]]
+
+    if direction == "higher":
+        return values[:3]
+    return values[-3:]
+
+
 def plan_experiment_from_knowns(
     knowns: dict[str, float],
     requested_outputs: list[str] | None = None,
@@ -303,6 +357,35 @@ def run_planned_scenarios(
                 {
                     "sampled_variable": "xB",
                     "sampled_value": scenario["xB"],
+                    "W0": scenario["W0"],
+                    "B": scenario["B"],
+                    "D": scenario["D"],
+                    "x0": scenario["x0"],
+                    "xB": scenario["xB"],
+                    "xDavg": knowns["xDavg_target"],
+                    "is_fully_consistent": scenario.get("is_fully_consistent"),
+                    "rayleigh_error": scenario.get("rayleigh_error"),
+                    "status": "consistent" if scenario.get("is_fully_consistent") else "inconsistent",
+                    "note": "",
+                }
+            )
+        scenario_result["notes"].extend(prototype.get("notes", []))
+        scenario_result["status"] = "ok" if scenario_result["rows"] else "no_scenarios"
+        return scenario_result
+
+    if {"D", "xDavg_target", "xB"}.issubset(knowns) and recommended_variable == "x0":
+        prototype = prototype_design_given_D_xDavg(
+            D_target=knowns["D"],
+            xDavg_target=knowns["xDavg_target"],
+            x0_options=sample_values.get("x0"),
+            xB_options=[knowns["xB"]],
+            n=n,
+        )
+        for scenario in prototype["scenarios"][:5]:
+            scenario_result["rows"].append(
+                {
+                    "sampled_variable": "x0",
+                    "sampled_value": scenario["x0"],
                     "W0": scenario["W0"],
                     "B": scenario["B"],
                     "D": scenario["D"],

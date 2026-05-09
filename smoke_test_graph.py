@@ -43,6 +43,8 @@ PLANNING_D_XDAVG_X0_MESSAGE = (
 )
 PLANNING_W0_X0_OPTIONS_MESSAGE = "I have 1000 mol at x0 0.05 and want to compare options."
 EXPLAIN_FOLLOWUP_MESSAGE = "I don't understand. Explain the options."
+USE_OPTION_2_MESSAGE = "use option 2"
+TRY_XB_MESSAGE = "try xB = 0.007"
 
 
 def assert_result_keys(state: dict) -> None:
@@ -195,6 +197,45 @@ def main() -> None:
     assert "keyerror" not in planning_x0_text
     assert "traceback" not in planning_x0_text
     pass_check("scenario sampling: D + xDavg_target + x0")
+
+    use_option_2 = app.invoke(
+        {
+            "user_message": USE_OPTION_2_MESSAGE,
+            "prior_knowns": planning_d_xdavg_x0["knowns"],
+            "active_experiment": planning_d_xdavg_x0.get("active_experiment"),
+            "experiment_results": planning_d_xdavg_x0.get("experiment_results"),
+            "experiment_sampled_variable": planning_d_xdavg_x0.get(
+                "experiment_sampled_variable"
+            ),
+            "experiment_knowns": planning_d_xdavg_x0.get("experiment_knowns"),
+            "experiment_status": planning_d_xdavg_x0.get("experiment_status"),
+        }
+    )
+    use_option_text = use_option_2["final_answer"].lower()
+    assert "option 2" in use_option_text
+    assert "xb" in use_option_text
+    assert "should i use" in use_option_text
+    pass_check("experiment follow-up: use option 2")
+
+    try_xb = app.invoke(
+        {
+            "user_message": TRY_XB_MESSAGE,
+            "prior_knowns": planning_d_xdavg_x0["knowns"],
+            "active_experiment": planning_d_xdavg_x0.get("active_experiment"),
+            "experiment_results": planning_d_xdavg_x0.get("experiment_results"),
+            "experiment_sampled_variable": planning_d_xdavg_x0.get(
+                "experiment_sampled_variable"
+            ),
+            "experiment_knowns": planning_d_xdavg_x0.get("experiment_knowns"),
+            "experiment_status": planning_d_xdavg_x0.get("experiment_status"),
+        }
+    )
+    try_xb_text = try_xb["final_answer"].lower()
+    assert "0.007" in try_xb["final_answer"]
+    assert "w0=" in try_xb_text or "w0" in try_xb_text
+    assert "keyerror" not in try_xb_text
+    assert "traceback" not in try_xb_text
+    pass_check("experiment follow-up: try xB")
 
     planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
     planning_options_text = planning_w0_x0_options["final_answer"].lower()

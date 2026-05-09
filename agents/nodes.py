@@ -3,8 +3,14 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
-from agents.design_experiments import plan_experiment_from_knowns, run_planned_scenarios
+from agents.design_experiments import (
+    build_sample_possible_plan,
+    plan_experiment_from_knowns,
+    run_planned_scenarios,
+    shifted_sample_values,
+)
 from agents.error_handling import VARIABLE_DISPLAY_NAMES, normalize_error_for_user
+from agents.experiment_commands import parse_experiment_command
 from agents.prompts import build_problem_structurer_prompt
 from agents.response_style import wants_detailed_explanation
 from agents.schemas import LLMProblemRequest, ProblemRequest
@@ -21,6 +27,41 @@ from engineering.tools import (
 )
 
 load_dotenv()
+
+
+def _format_scenario_row(row: dict) -> str:
+    sampled_variable = row.get("sampled_variable")
+    status = row.get("status", "unknown")
+    sample_value = row.get("sampled_value")
+    if sampled_variable in {"xB", "x0"} and "W0" in row:
+        line = (
+            f"{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
+            f"B={row['B']:.3f} mol, check={status}"
+        )
+        if row.get("rayleigh_error") is not None:
+            line += f", rayleigh_error={row['rayleigh_error']:.6g}"
+        return line
+    if sampled_variable == "xDavg_target":
+        line = (
+            f"xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+            f"B={row.get('B', 0):.3f} mol, xB={row.get('xB', 0):.6f}, status={status}"
+        )
+        if row.get("note"):
+            line += f" ({row['note']})"
+        return line
+    if sampled_variable == "xB":
+        line = (
+            f"xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+            f"B={row.get('B', 0):.3f} mol, xDavg={row.get('xDavg', 0):.6f}, status={status}"
+        )
+        if row.get("note"):
+            line += f" ({row['note']})"
+        return line
+    return f"{sampled_variable}={sample_value} -> status={status}"
+
+
+def _format_compact_scenario_rows(rows: list[dict]) -> str:
+    return "\n".join("- " + _format_scenario_row(row) for row in rows)
 
 
 def face_node(state: BatchDistillationState) -> BatchDistillationState:
@@ -162,6 +203,220 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     user_message = state.get("user_message", "")
     user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
+    active_experiment = state.get("active_experiment")
+    experiment_results = state.get("experiment_results") or []
+    experiment_sampled_variable = state.get("experiment_sampled_variable")
+    experiment_knowns = state.get("experiment_knowns") or {}
+    experiment_status = state.get("experiment_status")
+    experiment_command = parse_experiment_command(user_message)
+
+    if experiment_command["is_experiment_command"] and active_experiment:
+        action = experiment_command["action"]
+
+        if action == "clear_experiment":
+            final_answer = (
+                "Done with this experiment. I cleared the active scenario set and kept your remembered known values."
+            )
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+                "active_experiment": None,
+                "experiment_results": None,
+                "experiment_sampled_variable": None,
+                "experiment_knowns": None,
+                "experiment_status": None,
+            }
+
+        if action == "use_option":
+            option_index = experiment_command["option_index"] or 0
+            if option_index < 1 or option_index > len(experiment_results):
+                final_answer = (
+                    f"I only have {len(experiment_results)} stored option(s) in the current experiment."
+                )
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                }
+            row = experiment_results[option_index - 1]
+            sampled_variable = row.get("sampled_variable", experiment_sampled_variable)
+            sampled_value = row.get("sampled_value")
+            if sampled_variable == "xB":
+                final_answer = (
+                    f"Option {option_index} uses final still ethanol mole fraction (xB) = {sampled_value:.4f}. "
+                    f"That gives initial charge amount (W0) = {row.get('W0', 0):.3f} mol and final still amount (B) = {row.get('B', 0):.3f} mol. "
+                    f"Should I use xB = {sampled_value:.4f} as the design basis going forward?"
+                )
+            elif sampled_variable == "x0":
+                final_answer = (
+                    f"Option {option_index} uses initial ethanol mole fraction (x0) = {sampled_value:.4f}. "
+                    f"That gives initial charge amount (W0) = {row.get('W0', 0):.3f} mol and final still amount (B) = {row.get('B', 0):.3f} mol. "
+                    f"Should I use x0 = {sampled_value:.4f} as the design basis going forward?"
+                )
+            else:
+                final_answer = (
+                    f"Option {option_index} uses {sampled_variable} = {sampled_value:.4f}. "
+                    "Should I use that as the design basis going forward?"
+                )
+            updated_experiment = dict(active_experiment)
+            updated_experiment["selected_option"] = option_index
+            updated_experiment["selected_row"] = row
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+                "active_experiment": updated_experiment,
+                "experiment_results": experiment_results,
+                "experiment_sampled_variable": experiment_sampled_variable,
+                "experiment_knowns": experiment_knowns,
+                "experiment_status": "awaiting_confirmation",
+            }
+
+        if action == "try_value":
+            variable = experiment_command["variable"]
+            value = experiment_command["value"]
+            if variable is None or value is None:
+                final_answer = "I could not parse that experiment value."
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                }
+            custom_plan = build_sample_possible_plan(
+                knowns=experiment_knowns,
+                sampled_variable=variable,
+                sample_values=[value],
+                reason=f"I sampled {VARIABLE_DISPLAY_NAMES.get(variable, variable)} at the value you provided.",
+                next_question=f"If you want, I can try more {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values.",
+            )
+            scenario_result = run_planned_scenarios(experiment_knowns, custom_plan, n=100)
+            if not scenario_result["rows"]:
+                final_answer = (
+                    f"I could not generate a scenario for {VARIABLE_DISPLAY_NAMES.get(variable, variable)} = {value:.4f} with the current experiment context."
+                )
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                }
+            row = scenario_result["rows"][0]
+            final_answer = (
+                f"I tried {VARIABLE_DISPLAY_NAMES.get(variable, variable)} = {value:.4f}.\n\n"
+                + _format_compact_scenario_rows(scenario_result["rows"][:1])
+            )
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+                "active_experiment": {
+                    "base_knowns": experiment_knowns,
+                    "sampled_variable": variable,
+                    "plan": custom_plan,
+                },
+                "experiment_results": scenario_result["rows"],
+                "experiment_sampled_variable": variable,
+                "experiment_knowns": experiment_knowns,
+                "experiment_status": "awaiting_selection",
+            }
+
+        if action in {"show_higher", "show_lower"}:
+            variable = experiment_command["variable"] or experiment_sampled_variable
+            if variable is None:
+                final_answer = "I do not have an active sampled variable to adjust yet."
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                }
+            current_values = [
+                row["sampled_value"]
+                for row in experiment_results
+                if row.get("sampled_variable") == variable and row.get("sampled_value") is not None
+            ]
+            sample_values = shifted_sample_values(
+                sampled_variable=variable,
+                current_values=current_values,
+                knowns=experiment_knowns,
+                direction="higher" if action == "show_higher" else "lower",
+            )
+            if not sample_values:
+                final_answer = (
+                    f"I do not have any reasonable {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values to sample from the current experiment."
+                )
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                }
+            custom_plan = build_sample_possible_plan(
+                knowns=experiment_knowns,
+                sampled_variable=variable,
+                sample_values=sample_values,
+                reason=f"I sampled {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values from the current experiment.",
+                next_question="Pick one of these values, or give your own.",
+            )
+            scenario_result = run_planned_scenarios(experiment_knowns, custom_plan, n=100)
+            final_answer = (
+                f"I sampled {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values.\n\n"
+                + _format_compact_scenario_rows(scenario_result["rows"][:3])
+            )
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+                "active_experiment": {
+                    "base_knowns": experiment_knowns,
+                    "sampled_variable": variable,
+                    "plan": custom_plan,
+                },
+                "experiment_results": scenario_result["rows"],
+                "experiment_sampled_variable": variable,
+                "experiment_knowns": experiment_knowns,
+                "experiment_status": "awaiting_selection",
+            }
+
+        if action == "compare_variable":
+            variable = experiment_command["variable"]
+            if variable == "x0":
+                selected_row = (active_experiment or {}).get("selected_row")
+                if not selected_row or "xB" not in selected_row:
+                    final_answer = (
+                        "To compare initial ethanol mole fraction (x0) instead, I need a current final still ethanol mole fraction (xB) to hold fixed."
+                    )
+                    return {
+                        "guidance_response": final_answer,
+                        "final_answer": final_answer,
+                    }
+                comparison_knowns = {
+                    "D": selected_row["D"],
+                    "xDavg_target": selected_row.get("xDavg", experiment_knowns.get("xDavg_target")),
+                    "xB": selected_row["xB"],
+                }
+                custom_plan = build_sample_possible_plan(
+                    knowns=comparison_knowns,
+                    sampled_variable="x0",
+                    sample_values=[0.03, 0.05, 0.10],
+                    reason="I switched the comparison axis to initial ethanol mole fraction (x0).",
+                    next_question="Pick one of these x0 values, or give your own.",
+                )
+                scenario_result = run_planned_scenarios(comparison_knowns, custom_plan, n=100)
+                final_answer = (
+                    "I switched the comparison axis to initial ethanol mole fraction (x0).\n\n"
+                    + _format_compact_scenario_rows(scenario_result["rows"][:3])
+                )
+                return {
+                    "guidance_response": final_answer,
+                    "final_answer": final_answer,
+                    "active_experiment": {
+                        "base_knowns": comparison_knowns,
+                        "sampled_variable": "x0",
+                        "plan": custom_plan,
+                    },
+                    "experiment_results": scenario_result["rows"],
+                    "experiment_sampled_variable": "x0",
+                    "experiment_knowns": comparison_knowns,
+                    "experiment_status": "awaiting_selection",
+                }
+
+            final_answer = (
+                f"I can only switch to {VARIABLE_DISPLAY_NAMES.get(variable, variable)} if the current experiment has the right fixed inputs for that comparison."
+            )
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+            }
 
     analysis = analyze_knowns_against_workflows(
         knowns=knowns,
@@ -216,38 +471,28 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
             f"- {workflow['label']}: requires {required_text}; missing now: {missing_text}."
         )
 
-    def format_scenario_row(row: dict) -> str:
-        sampled_variable = row.get("sampled_variable")
-        status = row.get("status", "unknown")
-        sample_value = row.get("sampled_value")
-        if sampled_variable == "xB" and "W0" in row:
-            line = (
-                f"xB={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
-                f"B={row['B']:.3f} mol, check={status}"
-            )
-            if row.get("rayleigh_error") is not None:
-                line += f", rayleigh_error={row['rayleigh_error']:.6g}"
-            return line
-        if sampled_variable == "xDavg_target":
-            line = (
-                f"xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
-                f"B={row.get('B', 0):.3f} mol, xB={row.get('xB', 0):.6f}, status={status}"
-            )
-            if row.get("note"):
-                line += f" ({row['note']})"
-            return line
-        if sampled_variable == "xB":
-            line = (
-                f"xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
-                f"B={row.get('B', 0):.3f} mol, xDavg={row.get('xDavg', 0):.6f}, status={status}"
-            )
-            if row.get("note"):
-                line += f" ({row['note']})"
-            return line
-        return f"{sampled_variable}={sample_value} -> status={status}"
+    def build_active_experiment_dict() -> dict | None:
+        if not planned_scenarios["rows"]:
+            return None
+        return {
+            "base_knowns": dict(knowns),
+            "sampled_variable": experiment_plan.get("recommended_sampling_variable"),
+            "plan": experiment_plan,
+        }
+
+    def _scenario_rows_to_state() -> tuple[dict | None, list[dict] | None, str | None, dict | None, str | None]:
+        if not planned_scenarios["rows"]:
+            return None, None, None, None, None
+        return (
+            build_active_experiment_dict(),
+            planned_scenarios["rows"],
+            experiment_plan.get("recommended_sampling_variable"),
+            dict(knowns),
+            "awaiting_selection",
+        )
 
     compact_example_lines = [
-        "- " + format_scenario_row(row) for row in planned_scenarios["rows"][:5]
+        "- " + _format_scenario_row(row) for row in planned_scenarios["rows"][:5]
     ]
     scenario_block = ""
     if compact_example_lines:
@@ -342,6 +587,11 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     return {
         "guidance_response": final_answer,
         "final_answer": final_answer,
+        "active_experiment": _scenario_rows_to_state()[0],
+        "experiment_results": _scenario_rows_to_state()[1],
+        "experiment_sampled_variable": _scenario_rows_to_state()[2],
+        "experiment_knowns": _scenario_rows_to_state()[3],
+        "experiment_status": _scenario_rows_to_state()[4],
     }
 
 
@@ -588,6 +838,9 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
 def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
     user_message = state.get("user_message", "")
+
+    if state.get("active_experiment") and parse_experiment_command(user_message)["is_experiment_command"]:
+        return "design_advisor"
 
     # Partial-knowns and underdetermined design requests go to the design advisor.
     if intent_type == "design_prototyping":

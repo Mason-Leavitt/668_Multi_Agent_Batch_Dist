@@ -17,6 +17,11 @@ class SessionStateUpdate(TypedDict):
     prior_knowns: dict[str, float]
     prior_needs_clarification: bool
     prior_clarification_question: str | None
+    active_experiment: dict | None
+    experiment_results: list[dict] | None
+    experiment_sampled_variable: str | None
+    experiment_knowns: dict[str, float] | None
+    experiment_status: str | None
     message: str
 
 
@@ -169,8 +174,26 @@ def apply_session_command(
     prior_knowns: dict[str, float],
     prior_needs_clarification: bool,
     prior_clarification_question: str | None,
+    active_experiment: dict | None = None,
+    experiment_results: list[dict] | None = None,
+    experiment_sampled_variable: str | None = None,
+    experiment_knowns: dict[str, float] | None = None,
+    experiment_status: str | None = None,
 ) -> SessionStateUpdate:
     updated_knowns = dict(prior_knowns)
+
+    def current_state(message: str) -> SessionStateUpdate:
+        return {
+            "prior_knowns": updated_knowns,
+            "prior_needs_clarification": prior_needs_clarification,
+            "prior_clarification_question": prior_clarification_question,
+            "active_experiment": active_experiment,
+            "experiment_results": experiment_results,
+            "experiment_sampled_variable": experiment_sampled_variable,
+            "experiment_knowns": experiment_knowns,
+            "experiment_status": experiment_status,
+            "message": message,
+        }
 
     if command["action"] == "reset":
         # Text-based reset clears remembered state; each interface can decide
@@ -179,18 +202,18 @@ def apply_session_command(
             "prior_knowns": {},
             "prior_needs_clarification": False,
             "prior_clarification_question": None,
+            "active_experiment": None,
+            "experiment_results": None,
+            "experiment_sampled_variable": None,
+            "experiment_knowns": None,
+            "experiment_status": None,
             "message": command["message"],
         }
 
     if command["action"] == "forget":
         variable = command["variable"]
         if variable is None:
-            return {
-                "prior_knowns": updated_knowns,
-                "prior_needs_clarification": prior_needs_clarification,
-                "prior_clarification_question": prior_clarification_question,
-                "message": command["message"],
-            }
+            return current_state(command["message"])
 
         if variable in updated_knowns:
             updated_knowns.pop(variable)
@@ -198,44 +221,39 @@ def apply_session_command(
                 "prior_knowns": updated_knowns,
                 "prior_needs_clarification": False,
                 "prior_clarification_question": None,
+                "active_experiment": None,
+                "experiment_results": None,
+                "experiment_sampled_variable": None,
+                "experiment_knowns": None,
+                "experiment_status": None,
                 "message": (
                     f"Forgot {VARIABLE_LABELS.get(variable, variable)} from the current session. "
                     "What would you like to do next?"
                 ),
             }
 
-        return {
-            "prior_knowns": updated_knowns,
-            "prior_needs_clarification": prior_needs_clarification,
-            "prior_clarification_question": prior_clarification_question,
-            "message": f"`{variable}` was not currently remembered.",
-        }
+        return current_state(f"`{variable}` was not currently remembered.")
 
     if command["action"] == "set":
         variable = command["variable"]
         value = command["value"]
         if variable is None or value is None:
-            return {
-                "prior_knowns": updated_knowns,
-                "prior_needs_clarification": prior_needs_clarification,
-                "prior_clarification_question": prior_clarification_question,
-                "message": command["message"],
-            }
+            return current_state(command["message"])
 
         updated_knowns[variable] = value
         return {
             "prior_knowns": updated_knowns,
             "prior_needs_clarification": False,
             "prior_clarification_question": None,
+            "active_experiment": None,
+            "experiment_results": None,
+            "experiment_sampled_variable": None,
+            "experiment_knowns": None,
+            "experiment_status": None,
             "message": (
                 f"Updated {VARIABLE_LABELS.get(variable, variable)} to {value:g}. "
                 "What would you like to calculate or explore next?"
             ),
         }
 
-    return {
-        "prior_knowns": updated_knowns,
-        "prior_needs_clarification": prior_needs_clarification,
-        "prior_clarification_question": prior_clarification_question,
-        "message": "",
-    }
+    return current_state("")

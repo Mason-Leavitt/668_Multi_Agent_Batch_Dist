@@ -15,6 +15,11 @@ class BatchDistillationState(TypedDict, total=False):
     prior_knowns: dict[str, float]
     prior_needs_clarification: bool
     prior_clarification_question: str | None
+    active_experiment: dict[str, Any] | None
+    experiment_results: list[dict[str, Any]] | None
+    experiment_sampled_variable: str | None
+    experiment_knowns: dict[str, float] | None
+    experiment_status: str | None
 
     intent_type: IntentType
     problem_type: ProblemType

@@ -21,6 +21,21 @@ def initialize_session_state() -> None:
     if "prior_clarification_question" not in st.session_state:
         st.session_state.prior_clarification_question = None
 
+    if "active_experiment" not in st.session_state:
+        st.session_state.active_experiment = None
+
+    if "experiment_results" not in st.session_state:
+        st.session_state.experiment_results = None
+
+    if "experiment_sampled_variable" not in st.session_state:
+        st.session_state.experiment_sampled_variable = None
+
+    if "experiment_knowns" not in st.session_state:
+        st.session_state.experiment_knowns = None
+
+    if "experiment_status" not in st.session_state:
+        st.session_state.experiment_status = None
+
 
 def reset_conversation() -> None:
     # Reset clears the remembered session state and visible chat history together.
@@ -28,6 +43,11 @@ def reset_conversation() -> None:
     st.session_state.prior_knowns = {}
     st.session_state.prior_needs_clarification = False
     st.session_state.prior_clarification_question = None
+    st.session_state.active_experiment = None
+    st.session_state.experiment_results = None
+    st.session_state.experiment_sampled_variable = None
+    st.session_state.experiment_knowns = None
+    st.session_state.experiment_status = None
 
 
 def main() -> None:
@@ -60,6 +80,10 @@ def main() -> None:
             st.caption(
                 f"Waiting for clarification: {st.session_state.prior_clarification_question}"
             )
+        if st.session_state.active_experiment and st.session_state.experiment_sampled_variable:
+            st.caption(
+                f"Active experiment: sampling {st.session_state.experiment_sampled_variable}"
+            )
         with st.expander("Example prompts", expanded=False):
             st.markdown(
                 '- "I have 1000 mol of ethanol-water at 5 mol% ethanol. I want the average distillate to be 20 mol% ethanol. How much distillate can I collect?"'
@@ -88,6 +112,11 @@ def main() -> None:
                 prior_knowns=st.session_state.prior_knowns,
                 prior_needs_clarification=st.session_state.prior_needs_clarification,
                 prior_clarification_question=st.session_state.prior_clarification_question,
+                active_experiment=st.session_state.active_experiment,
+                experiment_results=st.session_state.experiment_results,
+                experiment_sampled_variable=st.session_state.experiment_sampled_variable,
+                experiment_knowns=st.session_state.experiment_knowns,
+                experiment_status=st.session_state.experiment_status,
             )
             st.session_state.prior_knowns = session_update["prior_knowns"]
             st.session_state.prior_needs_clarification = session_update[
@@ -96,6 +125,13 @@ def main() -> None:
             st.session_state.prior_clarification_question = session_update[
                 "prior_clarification_question"
             ]
+            st.session_state.active_experiment = session_update["active_experiment"]
+            st.session_state.experiment_results = session_update["experiment_results"]
+            st.session_state.experiment_sampled_variable = session_update[
+                "experiment_sampled_variable"
+            ]
+            st.session_state.experiment_knowns = session_update["experiment_knowns"]
+            st.session_state.experiment_status = session_update["experiment_status"]
             assistant_message = session_update["message"]
         else:
             graph_input = {"user_message": user_message}
@@ -111,6 +147,19 @@ def main() -> None:
                 graph_input["prior_clarification_question"] = (
                     st.session_state.prior_clarification_question
                 )
+            if (
+                st.session_state.active_experiment
+                or st.session_state.experiment_results
+                or st.session_state.experiment_knowns
+                or st.session_state.experiment_sampled_variable
+            ):
+                graph_input["active_experiment"] = st.session_state.active_experiment
+                graph_input["experiment_results"] = st.session_state.experiment_results
+                graph_input["experiment_sampled_variable"] = (
+                    st.session_state.experiment_sampled_variable
+                )
+                graph_input["experiment_knowns"] = st.session_state.experiment_knowns
+                graph_input["experiment_status"] = st.session_state.experiment_status
 
             final_state = st.session_state.graph_app.invoke(graph_input)
             assistant_message = final_state["final_answer"]
@@ -121,6 +170,13 @@ def main() -> None:
             st.session_state.prior_clarification_question = final_state.get(
                 "clarification_question"
             )
+            st.session_state.active_experiment = final_state.get("active_experiment")
+            st.session_state.experiment_results = final_state.get("experiment_results")
+            st.session_state.experiment_sampled_variable = final_state.get(
+                "experiment_sampled_variable"
+            )
+            st.session_state.experiment_knowns = final_state.get("experiment_knowns")
+            st.session_state.experiment_status = final_state.get("experiment_status")
 
             if not st.session_state.prior_needs_clarification and final_state.get(
                 "intent_type"

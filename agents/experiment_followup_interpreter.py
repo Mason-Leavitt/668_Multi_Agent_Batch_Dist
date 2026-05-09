@@ -1,26 +1,18 @@
 import os
-from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from agents.design_advisor_helpers import format_scenario_row
+from agents.experiment_intents import (
+    ExperimentFollowupConfidence,
+    ExperimentFollowupIntent,
+    build_experiment_intent,
+    unknown_experiment_intent,
+)
 
 load_dotenv()
-
-ExperimentFollowupIntent = Literal[
-    "select_option",
-    "try_custom_value",
-    "shift_samples_higher",
-    "shift_samples_lower",
-    "switch_sampling_axis",
-    "end_experiment",
-    "explain_option",
-    "unknown",
-]
-
-ExperimentFollowupConfidence = Literal["explicit", "interpreted", "low"]
 
 
 class LLMExperimentFollowupIntent(BaseModel):
@@ -33,21 +25,6 @@ class LLMExperimentFollowupIntent(BaseModel):
     needs_clarification: bool = False
     clarification_question: str | None = None
     confidence: ExperimentFollowupConfidence = "interpreted"
-
-
-def unknown_experiment_followup_intent() -> dict:
-    return {
-        "is_experiment_followup": False,
-        "intent": "unknown",
-        "option_index": None,
-        "target_variable": None,
-        "value": None,
-        "relative_choice": None,
-        "needs_clarification": False,
-        "clarification_question": None,
-        "confidence": "low",
-    }
-
 
 def is_plausible_experiment_followup(user_message: str) -> bool:
     message = (user_message or "").strip().lower()
@@ -82,7 +59,7 @@ def is_plausible_experiment_followup(user_message: str) -> bool:
     if any(phrase in message for phrase in followup_phrases):
         return True
 
-    return len(message.split()) <= 8
+    return False
 
 
 def _summarize_experiment_context(
@@ -119,7 +96,7 @@ def interpret_experiment_followup_with_llm(
     experiment_knowns: dict | None,
 ) -> dict:
     if not os.getenv("OPENAI_API_KEY"):
-        return unknown_experiment_followup_intent()
+        return unknown_experiment_intent()
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     structured_llm = llm.with_structured_output(
@@ -165,6 +142,17 @@ User message:
 
     try:
         interpreted = structured_llm.invoke(prompt)
-        return interpreted.model_dump()
+        data = interpreted.model_dump()
+        return build_experiment_intent(
+            data["intent"],
+            is_experiment_followup=data["is_experiment_followup"],
+            option_index=data.get("option_index"),
+            target_variable=data.get("target_variable"),
+            value=data.get("value"),
+            relative_choice=data.get("relative_choice"),
+            needs_clarification=data.get("needs_clarification", False),
+            clarification_question=data.get("clarification_question"),
+            confidence=data.get("confidence", "interpreted"),
+        )
     except Exception:
-        return unknown_experiment_followup_intent()
+        return unknown_experiment_intent()

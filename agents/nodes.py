@@ -5,7 +5,10 @@ from langchain_openai import ChatOpenAI
 
 from agents.design_advisor_helpers import (
     build_design_advisor_response,
+    handle_pending_commit_response,
     handle_experiment_followup,
+    is_pending_commit_confirmation,
+    is_pending_commit_rejection,
 )
 from agents.design_experiments import plan_experiment_from_knowns, run_planned_scenarios
 from agents.error_handling import normalize_error_for_user
@@ -167,6 +170,9 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     user_message = state.get("user_message", "")
     user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
+    pending_commit_response = handle_pending_commit_response(state, user_message)
+    if pending_commit_response is not None:
+        return pending_commit_response
     experiment_followup = parse_experiment_command(user_message)
     if (
         state.get("active_experiment")
@@ -456,6 +462,11 @@ def route_after_problem_structurer(state: BatchDistillationState) -> str:
     user_message = state.get("user_message", "")
 
     experiment_followup = parse_experiment_command(user_message)
+    if state.get("pending_commit_variable") is not None and (
+        is_pending_commit_confirmation(user_message)
+        or is_pending_commit_rejection(user_message)
+    ):
+        return "design_advisor"
     if (
         state.get("active_experiment")
         and (

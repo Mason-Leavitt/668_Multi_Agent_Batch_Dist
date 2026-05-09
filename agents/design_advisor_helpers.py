@@ -8,19 +8,60 @@ from agents.design_experiments import (
 from agents.error_handling import VARIABLE_DISPLAY_NAMES
 from agents.workflows import VARIABLE_DESCRIPTIONS
 
+CONFIRM_COMMIT_MESSAGES = {
+    "yes",
+    "yeah",
+    "yep",
+    "confirm",
+    "use it",
+    "use that",
+    "go with it",
+    "that works",
+}
+
+REJECT_COMMIT_MESSAGES = {
+    "no",
+    "cancel",
+    "don't use it",
+    "dont use it",
+    "choose another",
+    "not that one",
+}
+
+
+def _normalize_reply(message: str) -> str:
+    return " ".join(message.strip().lower().split())
+
+
+def is_pending_commit_confirmation(message: str) -> bool:
+    return _normalize_reply(message) in CONFIRM_COMMIT_MESSAGES
+
+
+def is_pending_commit_rejection(message: str) -> bool:
+    return _normalize_reply(message) in REJECT_COMMIT_MESSAGES
+
+
+def clear_pending_commit_state() -> dict[str, Any]:
+    return {
+        "pending_commit_variable": None,
+        "pending_commit_value": None,
+        "pending_commit_source": None,
+    }
+
 
 def format_scenario_row(row: dict[str, Any]) -> str:
     sampled_variable = row.get("sampled_variable")
     status = row.get("status", "unknown")
     sample_value = row.get("sampled_value")
+    prefix = "custom " if row.get("custom") else ""
     if sampled_variable in {"xB", "x0"} and "W0" in row:
         return (
-            f"{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
+            f"{prefix}{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
             f"B={row['B']:.3f} mol, check={status}"
         )
     if sampled_variable == "xDavg_target":
         line = (
-            f"xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+            f"{prefix}xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
             f"B={row.get('B', 0):.3f} mol, xB={row.get('xB', 0):.6f}, status={status}"
         )
         if row.get("note"):
@@ -28,13 +69,13 @@ def format_scenario_row(row: dict[str, Any]) -> str:
         return line
     if sampled_variable == "xB":
         line = (
-            f"xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
+            f"{prefix}xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
             f"B={row.get('B', 0):.3f} mol, xDavg={row.get('xDavg', 0):.6f}, status={status}"
         )
         if row.get("note"):
             line += f" ({row['note']})"
         return line
-    return f"{sampled_variable}={sample_value} -> status={status}"
+    return f"{prefix}{sampled_variable}={sample_value} -> status={status}"
 
 
 def format_scenario_rows(rows: list[dict[str, Any]], max_rows: int = 5) -> str:
@@ -75,6 +116,58 @@ def build_active_experiment_state(
     }
 
 
+def handle_pending_commit_response(
+    state: dict[str, Any],
+    user_message: str,
+) -> dict[str, Any] | None:
+    pending_variable = state.get("pending_commit_variable")
+    pending_value = state.get("pending_commit_value")
+    pending_source = state.get("pending_commit_source") or {}
+
+    if pending_variable is None or pending_value is None:
+        return None
+
+    if is_pending_commit_confirmation(user_message):
+        updated_knowns = dict(state.get("knowns") or state.get("prior_knowns") or {})
+        updated_knowns[pending_variable] = pending_value
+        active_experiment = state.get("active_experiment") or {}
+        experiment_results = state.get("experiment_results")
+        experiment_sampled_variable = state.get("experiment_sampled_variable")
+        active_overrides = dict(active_experiment)
+        active_overrides["committed_variable"] = pending_variable
+        active_overrides["committed_value"] = pending_value
+        active_overrides["pending_commit_source"] = pending_source
+        final_answer = (
+            f"Got it. I'll use {VARIABLE_DISPLAY_NAMES.get(pending_variable, pending_variable)} = {pending_value:.4f} going forward."
+        )
+        return {
+            "knowns": updated_knowns,
+            "guidance_response": final_answer,
+            "final_answer": final_answer,
+            **build_active_experiment_state(
+                knowns=updated_knowns,
+                sampled_variable=experiment_sampled_variable,
+                scenario_results=experiment_results,
+                status="selection_committed",
+                plan=active_experiment.get("plan"),
+                active_experiment_overrides=active_overrides,
+            ),
+            **clear_pending_commit_state(),
+        }
+
+    if is_pending_commit_rejection(user_message):
+        final_answer = (
+            "Okay, I won't use that value as the design basis. Choose another option, or give me a custom value to try."
+        )
+        return {
+            "guidance_response": final_answer,
+            "final_answer": final_answer,
+            **clear_pending_commit_state(),
+        }
+
+    return None
+
+
 def handle_experiment_followup(
     state: dict[str, Any],
     command: dict[str, Any],
@@ -105,6 +198,7 @@ def handle_experiment_followup(
             "guidance_response": final_answer,
             "final_answer": final_answer,
             **build_active_experiment_state(None, None, None),
+            **clear_pending_commit_state(),
         }
 
     if intent == "select_option":
@@ -159,6 +253,13 @@ def handle_experiment_followup(
                     "selected_row": row,
                 },
             ),
+            "pending_commit_variable": sampled_variable,
+            "pending_commit_value": sampled_value,
+            "pending_commit_source": {
+                "option_index": option_index,
+                "row": row,
+                "source": "selected_option",
+            },
         }
 
     if intent == "try_custom_value":
@@ -186,9 +287,26 @@ def handle_experiment_followup(
                 "guidance_response": final_answer,
                 "final_answer": final_answer,
             }
+        custom_rows = []
+        for row in scenario_result["rows"]:
+            custom_row = dict(row)
+            custom_row["custom"] = True
+            custom_row["source"] = "custom_value"
+            custom_rows.append(custom_row)
+
+        merged_rows = [
+            row
+            for row in experiment_results
+            if not (
+                row.get("sampled_variable") == variable
+                and row.get("sampled_value") == value
+            )
+        ] + custom_rows
+
         final_answer = (
             f"I tried {VARIABLE_DISPLAY_NAMES.get(variable, variable)} = {value:.4f}.\n\n"
-            + format_scenario_rows(scenario_result["rows"], max_rows=1)
+            + format_scenario_rows(custom_rows, max_rows=1)
+            + f"\n\nShould I use {variable} = {value:.4f} as the design basis going forward?"
         )
         return {
             "guidance_response": final_answer,
@@ -196,9 +314,15 @@ def handle_experiment_followup(
             **build_active_experiment_state(
                 experiment_knowns,
                 variable,
-                scenario_result["rows"],
+                merged_rows,
                 plan=custom_plan,
             ),
+            "pending_commit_variable": variable,
+            "pending_commit_value": value,
+            "pending_commit_source": {
+                "row": custom_rows[0],
+                "source": "custom_value",
+            },
         }
 
     if intent == "explain_option":
@@ -288,6 +412,7 @@ def handle_experiment_followup(
                 scenario_result["rows"],
                 plan=custom_plan,
             ),
+            **clear_pending_commit_state(),
         }
 
     if intent == "switch_sampling_axis":
@@ -318,6 +443,7 @@ def handle_experiment_followup(
                 return {
                     "guidance_response": final_answer,
                     "final_answer": final_answer,
+                    **clear_pending_commit_state(),
                 }
             comparison_knowns = {
                 "D": selected_row["D"],
@@ -347,6 +473,7 @@ def handle_experiment_followup(
                     scenario_result["rows"],
                     plan=custom_plan,
                 ),
+                **clear_pending_commit_state(),
             }
 
         final_answer = (
@@ -355,6 +482,7 @@ def handle_experiment_followup(
         return {
             "guidance_response": final_answer,
             "final_answer": final_answer,
+            **clear_pending_commit_state(),
         }
 
     return None
@@ -516,4 +644,5 @@ def build_design_advisor_response(
             status="awaiting_selection",
             plan=experiment_plan,
         ),
+        **clear_pending_commit_state(),
     }

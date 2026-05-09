@@ -22,6 +22,9 @@ class SessionStateUpdate(TypedDict):
     experiment_sampled_variable: str | None
     experiment_knowns: dict[str, float] | None
     experiment_status: str | None
+    pending_commit_variable: str | None
+    pending_commit_value: float | None
+    pending_commit_source: dict | None
     message: str
 
 
@@ -179,6 +182,9 @@ def apply_session_command(
     experiment_sampled_variable: str | None = None,
     experiment_knowns: dict[str, float] | None = None,
     experiment_status: str | None = None,
+    pending_commit_variable: str | None = None,
+    pending_commit_value: float | None = None,
+    pending_commit_source: dict | None = None,
 ) -> SessionStateUpdate:
     updated_knowns = dict(prior_knowns)
 
@@ -192,6 +198,9 @@ def apply_session_command(
             "experiment_sampled_variable": experiment_sampled_variable,
             "experiment_knowns": experiment_knowns,
             "experiment_status": experiment_status,
+            "pending_commit_variable": pending_commit_variable,
+            "pending_commit_value": pending_commit_value,
+            "pending_commit_source": pending_commit_source,
             "message": message,
         }
 
@@ -207,6 +216,9 @@ def apply_session_command(
             "experiment_sampled_variable": None,
             "experiment_knowns": None,
             "experiment_status": None,
+            "pending_commit_variable": None,
+            "pending_commit_value": None,
+            "pending_commit_source": None,
             "message": command["message"],
         }
 
@@ -226,6 +238,9 @@ def apply_session_command(
                 "experiment_sampled_variable": None,
                 "experiment_knowns": None,
                 "experiment_status": None,
+                "pending_commit_variable": None,
+                "pending_commit_value": None,
+                "pending_commit_source": None,
                 "message": (
                     f"Forgot {VARIABLE_LABELS.get(variable, variable)} from the current session. "
                     "What would you like to do next?"
@@ -250,6 +265,9 @@ def apply_session_command(
             "experiment_sampled_variable": None,
             "experiment_knowns": None,
             "experiment_status": None,
+            "pending_commit_variable": None,
+            "pending_commit_value": None,
+            "pending_commit_source": None,
             "message": (
                 f"Updated {VARIABLE_LABELS.get(variable, variable)} to {value:g}. "
                 "What would you like to calculate or explore next?"

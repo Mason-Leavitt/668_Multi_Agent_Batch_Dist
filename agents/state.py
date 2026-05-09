@@ -20,6 +20,9 @@ class BatchDistillationState(TypedDict, total=False):
     experiment_sampled_variable: str | None
     experiment_knowns: dict[str, float] | None
     experiment_status: str | None
+    pending_commit_variable: str | None
+    pending_commit_value: float | None
+    pending_commit_source: dict[str, Any] | None
 
     intent_type: IntentType
     problem_type: ProblemType

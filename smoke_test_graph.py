@@ -6,6 +6,7 @@ if the API is unavailable or the model's structured-output behavior changes.
 """
 
 from agents.graph import build_graph
+from agents.experiment_followup_interpreter import is_plausible_experiment_followup
 from agents.nodes import validation_calculation_node
 
 HAPPY_PATH_1_MESSAGE = (
@@ -53,6 +54,8 @@ CHOOSE_SECOND_ONE_MESSAGE = "choose the second one"
 WHAT_IF_XB_MESSAGE = "what if xB is 0.007?"
 VARY_FEED_COMPOSITION_MESSAGE = "vary feed composition instead"
 EXPLAIN_OPTION_2_MESSAGE = "explain option 2"
+CONFIRM_SELECTION_MESSAGE = "yes"
+REJECT_SELECTION_MESSAGE = "no"
 
 
 def assert_result_keys(state: dict) -> None:
@@ -76,6 +79,9 @@ def experiment_context_from_state(state: dict) -> dict:
         "experiment_sampled_variable": state.get("experiment_sampled_variable"),
         "experiment_knowns": state.get("experiment_knowns"),
         "experiment_status": state.get("experiment_status"),
+        "pending_commit_variable": state.get("pending_commit_variable"),
+        "pending_commit_value": state.get("pending_commit_value"),
+        "pending_commit_source": state.get("pending_commit_source"),
     }
 
 
@@ -234,7 +240,35 @@ def main() -> None:
     assert "option 2" in use_option_text
     assert "xb" in use_option_text
     assert "should i use" in use_option_text
+    assert use_option_2.get("pending_commit_variable") == "xB"
+    assert abs((use_option_2.get("pending_commit_value") or 0.0) - 0.005) < 1e-12
     pass_check("experiment follow-up: use option 2")
+
+    confirm_option_2 = app.invoke(
+        {
+            "user_message": CONFIRM_SELECTION_MESSAGE,
+            **experiment_context_from_state(use_option_2),
+        }
+    )
+    confirm_text = confirm_option_2["final_answer"].lower()
+    assert "i'll use" in confirm_text or "going forward" in confirm_text
+    assert abs(confirm_option_2["knowns"].get("xB", 0.0) - 0.005) < 1e-12
+    assert confirm_option_2.get("pending_commit_variable") is None
+    assert confirm_option_2.get("pending_commit_value") is None
+    pass_check("experiment follow-up: confirm option 2")
+
+    reject_option_2 = app.invoke(
+        {
+            "user_message": REJECT_SELECTION_MESSAGE,
+            **experiment_context_from_state(use_option_2),
+        }
+    )
+    reject_text = reject_option_2["final_answer"].lower()
+    assert "won't use" in reject_text or "choose another" in reject_text
+    assert reject_option_2.get("pending_commit_variable") is None
+    assert reject_option_2.get("pending_commit_value") is None
+    assert "xB" not in reject_option_2.get("knowns", {})
+    pass_check("experiment follow-up: reject option 2")
 
     try_xb = app.invoke(
         {
@@ -247,7 +281,25 @@ def main() -> None:
     assert "w0=" in try_xb_text or "w0" in try_xb_text
     assert "keyerror" not in try_xb_text
     assert "traceback" not in try_xb_text
+    assert try_xb.get("experiment_results")
+    assert any(
+        row.get("custom") and abs(row.get("sampled_value", 0.0) - 0.007) < 1e-12
+        for row in (try_xb.get("experiment_results") or [])
+    )
     pass_check("experiment follow-up: try xB")
+
+    explain_option_2_after_custom = app.invoke(
+        {
+            "user_message": EXPLAIN_OPTION_2_MESSAGE,
+            **experiment_context_from_state(try_xb),
+        }
+    )
+    explain_after_custom_text = explain_option_2_after_custom["final_answer"].lower()
+    assert "option 2" in explain_after_custom_text
+    assert "0.0050" in explain_option_2_after_custom["final_answer"] or "0.005" in explain_option_2_after_custom["final_answer"]
+    assert "keyerror" not in explain_after_custom_text
+    assert "traceback" not in explain_after_custom_text
+    pass_check("experiment follow-up: explain option 2 after custom")
 
     show_higher_xb = app.invoke(
         {
@@ -375,6 +427,9 @@ def main() -> None:
     assert "traceback" not in explain_option_2_text
     assert "option 2" in explain_option_2_text or "which option" in explain_option_2_text
     pass_check("natural follow-up: explain option 2")
+
+    assert is_plausible_experiment_followup("okay") is False
+    pass_check("plausibility gate: generic short message")
 
     planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
     planning_options_text = planning_w0_x0_options["final_answer"].lower()

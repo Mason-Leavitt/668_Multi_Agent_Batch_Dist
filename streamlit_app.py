@@ -36,6 +36,15 @@ def initialize_session_state() -> None:
     if "experiment_status" not in st.session_state:
         st.session_state.experiment_status = None
 
+    if "pending_commit_variable" not in st.session_state:
+        st.session_state.pending_commit_variable = None
+
+    if "pending_commit_value" not in st.session_state:
+        st.session_state.pending_commit_value = None
+
+    if "pending_commit_source" not in st.session_state:
+        st.session_state.pending_commit_source = None
+
 
 def reset_conversation() -> None:
     # Reset clears the remembered session state and visible chat history together.
@@ -48,6 +57,9 @@ def reset_conversation() -> None:
     st.session_state.experiment_sampled_variable = None
     st.session_state.experiment_knowns = None
     st.session_state.experiment_status = None
+    st.session_state.pending_commit_variable = None
+    st.session_state.pending_commit_value = None
+    st.session_state.pending_commit_source = None
 
 
 def main() -> None:
@@ -88,6 +100,11 @@ def main() -> None:
                 f"sampling {st.session_state.experiment_sampled_variable} "
                 f"with {len(st.session_state.experiment_results or [])} stored row(s)"
             )
+        if st.session_state.pending_commit_variable is not None:
+            st.caption(
+                "Pending confirmation: "
+                f"{st.session_state.pending_commit_variable} = {st.session_state.pending_commit_value:.4f}"
+            )
         with st.expander("Example prompts", expanded=False):
             st.markdown(
                 '- "I have 1000 mol of ethanol-water at 5 mol% ethanol. I want the average distillate to be 20 mol% ethanol. How much distillate can I collect?"'
@@ -121,6 +138,9 @@ def main() -> None:
                 experiment_sampled_variable=st.session_state.experiment_sampled_variable,
                 experiment_knowns=st.session_state.experiment_knowns,
                 experiment_status=st.session_state.experiment_status,
+                pending_commit_variable=st.session_state.pending_commit_variable,
+                pending_commit_value=st.session_state.pending_commit_value,
+                pending_commit_source=st.session_state.pending_commit_source,
             )
             st.session_state.prior_knowns = session_update["prior_knowns"]
             st.session_state.prior_needs_clarification = session_update[
@@ -136,6 +156,13 @@ def main() -> None:
             ]
             st.session_state.experiment_knowns = session_update["experiment_knowns"]
             st.session_state.experiment_status = session_update["experiment_status"]
+            st.session_state.pending_commit_variable = session_update[
+                "pending_commit_variable"
+            ]
+            st.session_state.pending_commit_value = session_update["pending_commit_value"]
+            st.session_state.pending_commit_source = session_update[
+                "pending_commit_source"
+            ]
             assistant_message = session_update["message"]
         else:
             graph_input = {"user_message": user_message}
@@ -164,6 +191,17 @@ def main() -> None:
                 )
                 graph_input["experiment_knowns"] = st.session_state.experiment_knowns
                 graph_input["experiment_status"] = st.session_state.experiment_status
+            if (
+                st.session_state.pending_commit_variable is not None
+                or st.session_state.pending_commit_value is not None
+            ):
+                graph_input["pending_commit_variable"] = (
+                    st.session_state.pending_commit_variable
+                )
+                graph_input["pending_commit_value"] = st.session_state.pending_commit_value
+                graph_input["pending_commit_source"] = (
+                    st.session_state.pending_commit_source
+                )
 
             final_state = st.session_state.graph_app.invoke(graph_input)
             assistant_message = final_state["final_answer"]
@@ -181,6 +219,15 @@ def main() -> None:
             )
             st.session_state.experiment_knowns = final_state.get("experiment_knowns")
             st.session_state.experiment_status = final_state.get("experiment_status")
+            st.session_state.pending_commit_variable = final_state.get(
+                "pending_commit_variable"
+            )
+            st.session_state.pending_commit_value = final_state.get(
+                "pending_commit_value"
+            )
+            st.session_state.pending_commit_source = final_state.get(
+                "pending_commit_source"
+            )
             has_active_experiment_context = bool(
                 st.session_state.active_experiment
                 or st.session_state.experiment_results
@@ -205,6 +252,9 @@ def main() -> None:
                 st.session_state.experiment_sampled_variable = None
                 st.session_state.experiment_knowns = None
                 st.session_state.experiment_status = None
+                st.session_state.pending_commit_variable = None
+                st.session_state.pending_commit_value = None
+                st.session_state.pending_commit_source = None
 
             if final_state.get("calculation_success") is True:
                 st.session_state.active_experiment = None
@@ -212,6 +262,9 @@ def main() -> None:
                 st.session_state.experiment_sampled_variable = None
                 st.session_state.experiment_knowns = None
                 st.session_state.experiment_status = None
+                st.session_state.pending_commit_variable = None
+                st.session_state.pending_commit_value = None
+                st.session_state.pending_commit_source = None
     except Exception as exc:
         assistant_message = normalize_error_for_user(exc)
 

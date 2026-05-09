@@ -45,6 +45,10 @@ PLANNING_W0_X0_OPTIONS_MESSAGE = "I have 1000 mol at x0 0.05 and want to compare
 EXPLAIN_FOLLOWUP_MESSAGE = "I don't understand. Explain the options."
 USE_OPTION_2_MESSAGE = "use option 2"
 TRY_XB_MESSAGE = "try xB = 0.007"
+SHOW_HIGHER_XB_MESSAGE = "show higher xB values"
+SHOW_LOWER_XB_MESSAGE = "show lower xB values"
+COMPARE_X0_INSTEAD_MESSAGE = "compare x0 instead"
+DONE_WITH_EXPERIMENT_MESSAGE = "done with this experiment"
 
 
 def assert_result_keys(state: dict) -> None:
@@ -58,6 +62,17 @@ def assert_result_keys(state: dict) -> None:
 
 def pass_check(label: str) -> None:
     print(f"[PASS] {label}")
+
+
+def experiment_context_from_state(state: dict) -> dict:
+    return {
+        "prior_knowns": state["knowns"],
+        "active_experiment": state.get("active_experiment"),
+        "experiment_results": state.get("experiment_results"),
+        "experiment_sampled_variable": state.get("experiment_sampled_variable"),
+        "experiment_knowns": state.get("experiment_knowns"),
+        "experiment_status": state.get("experiment_status"),
+    }
 
 
 def main() -> None:
@@ -220,14 +235,7 @@ def main() -> None:
     try_xb = app.invoke(
         {
             "user_message": TRY_XB_MESSAGE,
-            "prior_knowns": planning_d_xdavg_x0["knowns"],
-            "active_experiment": planning_d_xdavg_x0.get("active_experiment"),
-            "experiment_results": planning_d_xdavg_x0.get("experiment_results"),
-            "experiment_sampled_variable": planning_d_xdavg_x0.get(
-                "experiment_sampled_variable"
-            ),
-            "experiment_knowns": planning_d_xdavg_x0.get("experiment_knowns"),
-            "experiment_status": planning_d_xdavg_x0.get("experiment_status"),
+            **experiment_context_from_state(planning_d_xdavg_x0),
         }
     )
     try_xb_text = try_xb["final_answer"].lower()
@@ -236,6 +244,63 @@ def main() -> None:
     assert "keyerror" not in try_xb_text
     assert "traceback" not in try_xb_text
     pass_check("experiment follow-up: try xB")
+
+    show_higher_xb = app.invoke(
+        {
+            "user_message": SHOW_HIGHER_XB_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    show_higher_text = show_higher_xb["final_answer"].lower()
+    assert "higher" in show_higher_text
+    assert "xb" in show_higher_text
+    assert show_higher_xb.get("active_experiment")
+    assert show_higher_xb.get("experiment_results")
+    assert "keyerror" not in show_higher_text
+    assert "traceback" not in show_higher_text
+    pass_check("experiment follow-up: show higher xB")
+
+    show_lower_xb = app.invoke(
+        {
+            "user_message": SHOW_LOWER_XB_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    show_lower_text = show_lower_xb["final_answer"].lower()
+    assert "lower" in show_lower_text
+    assert "xb" in show_lower_text
+    assert show_lower_xb.get("active_experiment")
+    assert show_lower_xb.get("experiment_results")
+    assert "keyerror" not in show_lower_text
+    assert "traceback" not in show_lower_text
+    pass_check("experiment follow-up: show lower xB")
+
+    compare_x0_instead = app.invoke(
+        {
+            "user_message": COMPARE_X0_INSTEAD_MESSAGE,
+            **experiment_context_from_state(use_option_2),
+        }
+    )
+    compare_x0_text = compare_x0_instead["final_answer"].lower()
+    assert "x0" in compare_x0_text or "initial ethanol mole fraction" in compare_x0_text
+    assert "keyerror" not in compare_x0_text
+    assert "traceback" not in compare_x0_text
+    if compare_x0_instead.get("experiment_results"):
+        assert compare_x0_instead.get("active_experiment")
+    pass_check("experiment follow-up: compare x0 instead")
+
+    done_with_experiment = app.invoke(
+        {
+            "user_message": DONE_WITH_EXPERIMENT_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    done_text = done_with_experiment["final_answer"].lower()
+    assert "done with this experiment" in done_text or "cleared" in done_text
+    assert done_with_experiment.get("active_experiment") is None
+    assert not done_with_experiment.get("experiment_results")
+    assert done_with_experiment.get("experiment_status") is None
+    pass_check("experiment follow-up: done with experiment")
 
     planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
     planning_options_text = planning_w0_x0_options["final_answer"].lower()

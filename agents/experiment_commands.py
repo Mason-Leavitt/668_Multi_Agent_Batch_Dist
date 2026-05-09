@@ -84,7 +84,7 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
         }
 
     higher_match = re.fullmatch(
-        r"show\s+higher\s+(.+)",
+        r"show\s+higher\s+(.+?)(?:\s+values?)?",
         message,
         flags=re.IGNORECASE,
     )
@@ -99,7 +99,7 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
         }
 
     lower_match = re.fullmatch(
-        r"show\s+lower\s+(.+)",
+        r"show\s+lower\s+(.+?)(?:\s+values?)?",
         message,
         flags=re.IGNORECASE,
     )

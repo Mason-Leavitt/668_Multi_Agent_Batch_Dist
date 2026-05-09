@@ -21,7 +21,7 @@ from agents.prompts import build_problem_structurer_prompt
 from agents.response_style import wants_detailed_explanation
 from agents.schemas import LLMProblemRequest, ProblemRequest
 from agents.state import BatchDistillationState
-from agents.workflows import SUPPORTED_WORKFLOWS, analyze_knowns_against_workflows
+from agents.workflows import SUPPORTED_WORKFLOWS, add_product_metrics, analyze_knowns_against_workflows
 from engineering.tools import (
     check_batch_consistency,
     solve_batch_given_W0_x0_xB,
@@ -400,7 +400,7 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
             )
         }
 
-    result = state["result"]
+    result = add_product_metrics(state["result"])
     check = state["consistency_check"]
     problem_type = state["problem_type"]
 
@@ -423,28 +423,40 @@ def result_explainer_node(state: BatchDistillationState) -> BatchDistillationSta
     W0 = result["W0"]
     x0 = result["x0"]
 
-    input_summary_lines = [
+    product_lines = [
+        f"- Distillate amount (D) = {D:.3f} mol",
+        f"- Average distillate ethanol mole fraction (xDavg) = {xDavg:.6f}",
+    ]
+    if result.get("D_percent_of_feed") is not None:
+        product_lines.append(
+            f"- Distillate/feed ratio (D/W0) = {result['D_percent_of_feed']:.1f}%"
+        )
+
+    supporting_lines = [
         f"- Initial charge amount (W0) = {W0:.3f} mol",
         f"- Initial ethanol mole fraction (x0) = {x0:.6f}",
+        f"- Final still amount (B) = {B:.3f} mol",
     ]
 
     if "xDavg_target" in result:
-        input_summary_lines.append(
-            f"- Target average distillate ethanol mole fraction (xDavg_target) = {result['xDavg_target']:.6f}"
+        supporting_lines.extend(
+            [
+            f"- Target average distillate ethanol mole fraction (xDavg_target) = {result['xDavg_target']:.6f}",
+            f"- Final still ethanol mole fraction (xB) = {xB:.6f}",
+            ]
         )
     else:
-        input_summary_lines.append(
-            f"- Target final still ethanol mole fraction (xB) = {xB:.6f}"
+        supporting_lines.append(
+            f"- Stopping basis: final still ethanol mole fraction (xB) = {xB:.6f}"
         )
 
     final_answer = (
         "For the batch distillation problem:\n\n"
-        + "\n".join(input_summary_lines)
-        + "\n\nCalculated result:\n\n"
-        + f"- Distillate amount (D) = {D:.3f} mol\n"
-        + f"- Final still amount (B) = {B:.3f} mol\n"
-        + f"- Final still ethanol mole fraction (xB) = {xB:.6f}\n"
-        + f"- Average distillate ethanol mole fraction (xDavg) = {xDavg:.6f}\n\n"
+        + "Product-side outputs:\n\n"
+        + "\n".join(product_lines)
+        + "\n\nSupporting details:\n\n"
+        + "\n".join(supporting_lines)
+        + "\n\n"
         + "Consistency check:\n\n"
         + f"- Fully consistent: {check.get('is_fully_consistent')}\n"
         + f"- Total balance consistent: {check.get('is_total_balance_consistent')}\n"

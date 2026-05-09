@@ -58,6 +58,7 @@ This project is a batch-distillation assistant for simplified Rayleigh and mole-
 - It helps structure simplified calculation requests and route them to deterministic Python tools.
 - The LLM structures the conversation, while deterministic Python tools perform the calculations.
 - Illustrative scenarios are examples to help compare design choices and choose a design basis.
+- Product-centered outputs emphasize distillate amount (D), average distillate ethanol mole fraction (xDavg), and distillate/feed ratio (D/W0), while final still amount (B) and final still ethanol mole fraction (xB) are shown as supporting details.
 
 ## Session commands
 

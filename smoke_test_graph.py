@@ -107,12 +107,14 @@ def main() -> None:
     assert happy_path_1["problem_type"] == "solve_D_given_W0_x0_xDavg"
     assert happy_path_1["calculation_success"] is True
     assert_result_keys(happy_path_1)
+    assert "distillate/feed ratio" in happy_path_1["final_answer"].lower()
     pass_check("happy path: target average distillate")
 
     happy_path_2 = app.invoke({"user_message": HAPPY_PATH_2_MESSAGE})
     assert happy_path_2["problem_type"] == "solve_batch_given_W0_x0_xB"
     assert happy_path_2["calculation_success"] is True
     assert_result_keys(happy_path_2)
+    assert "distillate/feed ratio" in happy_path_2["final_answer"].lower()
     pass_check("happy path: target final still composition")
 
     clarification_path = app.invoke({"user_message": CLARIFICATION_PATH_MESSAGE})
@@ -190,7 +192,7 @@ def main() -> None:
         }
     )
     followup_text = underdetermined_followup["final_answer"].lower()
-    assert "do not uniquely determine" in followup_text or "underdetermined" in followup_text
+    assert "feed requirement" in followup_text or "do not uniquely determine" in followup_text or "underdetermined" in followup_text
     assert "x0" in followup_text or "feed composition" in followup_text
     assert "xb" in followup_text or "final still" in followup_text
     assert "what is w0" not in followup_text
@@ -199,8 +201,8 @@ def main() -> None:
     design_prototyping = app.invoke({"user_message": DESIGN_PROTOTYPING_MESSAGE})
     design_text = design_prototyping["final_answer"].lower()
     assert design_prototyping.get("intent_type") == "design_prototyping"
-    assert "do not uniquely determine" in design_text or "underdetermined" in design_text
-    assert "sample" in design_text or "design basis" in design_text
+    assert "feed requirement" in design_text or "do not uniquely determine" in design_text or "underdetermined" in design_text
+    assert "sample" in design_text or "design basis" in design_text or "stopping basis" in design_text
     pass_check("design prototyping guidance")
 
     planning_d_xdavg_only = app.invoke({"user_message": PLANNING_D_XDAVG_ONLY_MESSAGE})
@@ -219,6 +221,7 @@ def main() -> None:
     assert "0.05" in planning_d_xdavg_x0["final_answer"]
     assert "xb=" in planning_d_xdavg_x0["final_answer"].lower() or "final still ethanol mole fraction (xb)" in planning_x0_text
     assert "w0=" in planning_d_xdavg_x0["final_answer"].lower() or "w0" in planning_x0_text
+    assert "d/w0=" in planning_d_xdavg_x0["final_answer"].lower()
     assert "keyerror" not in planning_x0_text
     assert "traceback" not in planning_x0_text
     pass_check("scenario sampling: D + xDavg_target + x0")
@@ -436,7 +439,8 @@ def main() -> None:
     assert "1000.000" in planning_w0_x0_options["final_answer"]
     assert "0.050000" in planning_w0_x0_options["final_answer"]
     assert "xdavg_target" in planning_options_text or "average distillate" in planning_options_text
-    assert "xb" in planning_options_text or "final still" in planning_options_text
+    assert "d/w0=" in planning_options_text
+    assert "xb" in planning_options_text or "stopping basis" in planning_options_text
     assert "illustrative" in planning_options_text or "compare design choices" in planning_options_text
     pass_check("scenario sampling: W0 + x0 options")
 

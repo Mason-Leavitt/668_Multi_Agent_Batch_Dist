@@ -54,15 +54,28 @@ def format_scenario_row(row: dict[str, Any]) -> str:
     status = row.get("status", "unknown")
     sample_value = row.get("sampled_value")
     prefix = "custom " if row.get("custom") else ""
-    if sampled_variable in {"xB", "x0"} and "W0" in row:
+    ratio_text = ""
+    if row.get("D_percent_of_feed") is not None:
+        ratio_text = f", D/W0={row['D_percent_of_feed']:.1f}%"
+    ratio_value_text = (
+        f"{row['D_percent_of_feed']:.1f}%"
+        if row.get("D_percent_of_feed") is not None
+        else "n/a"
+    )
+    if sampled_variable == "x0" and "W0" in row:
         return (
-            f"{prefix}{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
-            f"B={row['B']:.3f} mol, check={status}"
+            f"{prefix}{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol"
+            f"{ratio_text}, B={row['B']:.3f} mol, check={status}"
+        )
+    if sampled_variable == "xB" and "W0" in row and "x0" in row:
+        return (
+            f"{prefix}{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol"
+            f"{ratio_text}, B={row['B']:.3f} mol, check={status}"
         )
     if sampled_variable == "xDavg_target":
         line = (
             f"{prefix}xDavg_target={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
-            f"B={row.get('B', 0):.3f} mol, xB={row.get('xB', 0):.6f}, status={status}"
+            f"D/W0={ratio_value_text}, xB={row.get('xB', 0):.6f}, status={status}"
         )
         if row.get("note"):
             line += f" ({row['note']})"
@@ -70,7 +83,7 @@ def format_scenario_row(row: dict[str, Any]) -> str:
     if sampled_variable == "xB":
         line = (
             f"{prefix}xB={sample_value:.4f} -> D={row.get('D', 0):.3f} mol, "
-            f"B={row.get('B', 0):.3f} mol, xDavg={row.get('xDavg', 0):.6f}, status={status}"
+            f"D/W0={ratio_value_text}, xDavg={row.get('xDavg', 0):.6f}, status={status}"
         )
         if row.get("note"):
             line += f" ({row['note']})"

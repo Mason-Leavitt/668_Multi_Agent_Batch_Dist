@@ -1,4 +1,4 @@
-from agents.workflows import VARIABLE_DESCRIPTIONS
+from agents.workflows import VARIABLE_DESCRIPTIONS, add_product_metrics
 from engineering.tools import (
     prototype_design_given_D_xDavg,
     solve_batch_given_W0_x0_xB,
@@ -12,6 +12,7 @@ def _goal_mentions_options(user_goal: str) -> bool:
         "option",
         "options",
         "compare",
+        "different",
         "help choose",
         "choose",
         "explore",
@@ -136,7 +137,7 @@ def plan_experiment_from_knowns(
                 "reason": "The target-average-distillate workflow is ready to run.",
                 "recommended_workflow": "solve_D_given_W0_x0_xDavg",
                 "next_question": (
-                    "I have enough information to calculate the distillate amount (D), the final still amount (B), and the final still ethanol mole fraction (xB)."
+                    "I have enough information to calculate the distillate amount (D), average distillate ethanol mole fraction (xDavg), and distillate/feed ratio (D/W0)."
                 ),
             }
         )
@@ -146,10 +147,10 @@ def plan_experiment_from_knowns(
         result.update(
             {
                 "status": "ready_to_calculate",
-                "reason": "The target-final-still-composition workflow is ready to run.",
+                "reason": "The stopping-basis workflow is ready to run.",
                 "recommended_workflow": "solve_batch_given_W0_x0_xB",
                 "next_question": (
-                    "I have enough information to calculate the distillate amount (D) and the average distillate ethanol mole fraction (xDavg)."
+                    "I have enough information to calculate the distillate amount (D), average distillate ethanol mole fraction (xDavg), and distillate/feed ratio (D/W0)."
                 ),
             }
         )
@@ -176,16 +177,16 @@ def plan_experiment_from_knowns(
                 {
                     "status": "sample_possible",
                     "candidate_sampling_variables": ["xDavg_target", "xB"],
-                    "recommended_sampling_variable": "both",
+                    "recommended_sampling_variable": "xDavg_target",
                     "sample_values": {
                         "xDavg_target": avg_targets,
                         "xB": xb_values,
                     },
                     "reason": (
-                        "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, you can compare either target average distillate compositions or target final still compositions."
+                        "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the most product-centered next step is to compare target average distillate compositions. I can also explore alternate stopping-basis assumptions using final still ethanol mole fraction (xB)."
                     ),
                     "next_question": (
-                        "I can show compact examples for both target average distillate composition (xDavg_target) and final still ethanol mole fraction (xB)."
+                        "I can show compact examples for target average distillate composition (xDavg_target). If you want, I can also explore stopping-basis assumptions using final still ethanol mole fraction (xB)."
                     ),
                 }
             )
@@ -199,10 +200,10 @@ def plan_experiment_from_knowns(
                         "xB": xb_values,
                     },
                     "reason": (
-                        "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the next design choice is which target to explore."
+                        "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the most product-centered next step is to compare target average distillate compositions. A final still ethanol mole fraction (xB) can also be used as a stopping basis."
                     ),
                     "next_question": (
-                        "Do you want to explore target average distillate composition (xDavg_target) or final still ethanol mole fraction (xB)?"
+                        "I can start by comparing target average distillate compositions (xDavg_target). If you prefer, I can instead explore a stopping basis using final still ethanol mole fraction (xB)."
                     ),
                 }
             )
@@ -217,10 +218,10 @@ def plan_experiment_from_knowns(
                 "recommended_sampling_variable": "xB",
                 "sample_values": {"xB": xb_values},
                 "reason": (
-                    "The distillate amount (D), target average distillate ethanol mole fraction (xDavg_target), and initial ethanol mole fraction (x0) still leave the required initial charge amount open. Sampling final still ethanol mole fraction (xB) can show possible setups."
+                    "You have defined the product goal, but the required initial charge amount still depends on the feed composition and a stopping assumption. Sampling final still ethanol mole fraction (xB) can show possible feed requirements."
                 ),
                 "next_question": (
-                    "I can explore example final still ethanol mole fraction (xB) values to show how the required initial charge amount could change. Do you want to sample xB?"
+                    "I can explore example stopping-basis values using final still ethanol mole fraction (xB) to show how the required initial charge amount could change. Do you want to sample xB?"
                 ),
             }
         )
@@ -235,7 +236,7 @@ def plan_experiment_from_knowns(
                 "recommended_sampling_variable": "x0",
                 "sample_values": {"x0": x0_values},
                 "reason": (
-                    "The distillate amount (D), target average distillate ethanol mole fraction (xDavg_target), and final still ethanol mole fraction (xB) still leave the feed composition open. Sampling initial ethanol mole fraction (x0) can show possible setups."
+                    "You have defined the product goal and a stopping basis, but the required initial charge amount still depends on feed composition. Sampling initial ethanol mole fraction (x0) can show possible feed requirements."
                 ),
                 "next_question": (
                     "I can explore example initial ethanol mole fraction (x0) values to show how the required initial charge amount could change. Do you want to sample x0?"
@@ -254,10 +255,10 @@ def plan_experiment_from_knowns(
                     "xB": _sample_xb_values(knowns.get("x0")),
                 },
                 "reason": (
-                    "The distillate amount (D) and target average distillate ethanol mole fraction (xDavg_target) do not uniquely determine both the starting charge and the feed composition."
+                    "You have defined the product goal, but the feed requirement is still not unique because it depends on feed composition and a stopping basis."
                 ),
                 "next_question": (
-                    "To explore possible setups, choose one variable for me to sample: feed composition (x0) or final still ethanol mole fraction (xB)."
+                    "To explore possible feed requirements, choose one variable for me to sample: feed composition (x0) or a stopping basis using final still ethanol mole fraction (xB)."
                 ),
             }
         )
@@ -354,7 +355,8 @@ def run_planned_scenarios(
         )
         for scenario in prototype["scenarios"][:5]:
             scenario_result["rows"].append(
-                {
+                add_product_metrics(
+                    {
                     "sampled_variable": "xB",
                     "sampled_value": scenario["xB"],
                     "W0": scenario["W0"],
@@ -367,7 +369,8 @@ def run_planned_scenarios(
                     "rayleigh_error": scenario.get("rayleigh_error"),
                     "status": "consistent" if scenario.get("is_fully_consistent") else "inconsistent",
                     "note": "",
-                }
+                    }
+                )
             )
         scenario_result["notes"].extend(prototype.get("notes", []))
         scenario_result["status"] = "ok" if scenario_result["rows"] else "no_scenarios"
@@ -383,7 +386,8 @@ def run_planned_scenarios(
         )
         for scenario in prototype["scenarios"][:5]:
             scenario_result["rows"].append(
-                {
+                add_product_metrics(
+                    {
                     "sampled_variable": "x0",
                     "sampled_value": scenario["x0"],
                     "W0": scenario["W0"],
@@ -396,7 +400,8 @@ def run_planned_scenarios(
                     "rayleigh_error": scenario.get("rayleigh_error"),
                     "status": "consistent" if scenario.get("is_fully_consistent") else "inconsistent",
                     "note": "",
-                }
+                    }
+                )
             )
         scenario_result["notes"].extend(prototype.get("notes", []))
         scenario_result["status"] = "ok" if scenario_result["rows"] else "no_scenarios"
@@ -413,16 +418,19 @@ def run_planned_scenarios(
                         n=n,
                     )
                     scenario_result["rows"].append(
-                        {
+                        add_product_metrics(
+                            {
                             "sampled_variable": "xDavg_target",
                             "sampled_value": xDavg_target,
+                            "W0": result["W0"],
                             "D": result["D"],
                             "B": result["B"],
                             "xB": result["xB"],
                             "xDavg": result["xDavg"],
                             "status": "consistent",
                             "note": "",
-                        }
+                            }
+                        )
                     )
                 except Exception as exc:
                     scenario_result["rows"].append(
@@ -444,16 +452,19 @@ def run_planned_scenarios(
                         n=n,
                     )
                     scenario_result["rows"].append(
-                        {
+                        add_product_metrics(
+                            {
                             "sampled_variable": "xB",
                             "sampled_value": xB,
+                            "W0": result["W0"],
                             "D": result["D"],
                             "B": result["B"],
                             "xB": result["xB"],
                             "xDavg": result["xDavg"],
                             "status": "consistent",
                             "note": "",
-                        }
+                            }
+                        )
                     )
                 except Exception as exc:
                     scenario_result["rows"].append(

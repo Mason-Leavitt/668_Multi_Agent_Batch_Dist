@@ -5,11 +5,13 @@ from engineering.tools import (
 
 SUPPORTED_WORKFLOWS = {
     "solve_D_given_W0_x0_xDavg": {
-        "label": "Choose a target average distillate composition",
+        "label": "Estimate distillate amount from a target average composition",
         "problem_type": "solve_D_given_W0_x0_xDavg",
         "description": (
             "Use this workflow when you know the initial charge amount (W0), the initial "
-            "ethanol mole fraction (x0), and the target average distillate ethanol mole fraction (xDavg_target)."
+            "ethanol mole fraction (x0), and the target average distillate ethanol mole fraction (xDavg_target). "
+            "It emphasizes product-side outputs such as distillate amount (D), average distillate ethanol mole fraction (xDavg), "
+            "and the distillate/feed ratio (D/W0)."
         ),
         "required_inputs": ["W0", "x0", "xDavg_target"],
         "outputs": ["D", "B", "xB", "xDavg"],
@@ -20,11 +22,12 @@ SUPPORTED_WORKFLOWS = {
         ),
     },
     "solve_batch_given_W0_x0_xB": {
-        "label": "Choose a target final still composition",
+        "label": "Explore product outcome from a stopping basis",
         "problem_type": "solve_batch_given_W0_x0_xB",
         "description": (
             "Use this workflow when you know the initial charge amount (W0), the initial "
-            "ethanol mole fraction (x0), and the final still ethanol mole fraction (xB) you want to reach."
+            "ethanol mole fraction (x0), and the final still ethanol mole fraction (xB) you want to reach. "
+            "This is usually a stopping-basis or stopping-assumption workflow rather than the user's primary product goal."
         ),
         "required_inputs": ["W0", "x0", "xB"],
         "outputs": ["D", "B", "xB", "xDavg"],
@@ -54,6 +57,23 @@ SUPPORTED_WORKFLOWS = {
     },
 }
 
+PROTOTYPING_WORKFLOWS = {
+    "prototype_feed_requirements_given_D_xDavg": {
+        "label": "Prototype feed requirements for a desired product target",
+        "problem_type": "prototype_feed_requirements_given_D_xDavg",
+        "description": (
+            "Use this scenario/prototyping path when you know the desired distillate amount (D) "
+            "and target average distillate ethanol mole fraction (xDavg_target), and you want to "
+            "explore possible feed requirements. The assistant can sample feed composition (x0) "
+            "and/or a stopping basis using final still ethanol mole fraction (xB) to estimate "
+            "required initial charge amount (W0) and distillate/feed ratio (D/W0)."
+        ),
+        "required_inputs": ["D", "xDavg_target"],
+        "outputs": ["W0", "D_over_W0", "B", "x0", "xB"],
+        "is_scenario_only": True,
+    }
+}
+
 VARIABLE_DESCRIPTIONS = {
     "W0": "initial charge amount (W0)",
     "B": "final still amount (B)",
@@ -63,6 +83,16 @@ VARIABLE_DESCRIPTIONS = {
     "xDavg": "average distillate ethanol mole fraction (xDavg)",
     "xDavg_target": "target average distillate ethanol mole fraction (xDavg_target)",
 }
+
+
+def add_product_metrics(row: dict) -> dict:
+    enriched = dict(row)
+    D = enriched.get("D")
+    W0 = enriched.get("W0")
+    if D is not None and W0 is not None and W0 > 0:
+        enriched["D_over_W0"] = D / W0
+        enriched["D_percent_of_feed"] = 100.0 * D / W0
+    return enriched
 
 
 def analyze_knowns_against_workflows(
@@ -144,8 +174,8 @@ def recommend_next_design_basis(
             "status": "ready_to_calculate",
             "recommended_next_question": (
                 "I have enough information to run the target-average-distillate calculation. "
-                "Would you like me to calculate the distillate amount (D), the final still amount (B), "
-                "and the final still ethanol mole fraction (xB)?"
+                "Would you like me to calculate the distillate amount (D), average distillate ethanol mole fraction (xDavg), "
+                "and the distillate/feed ratio (D/W0)?"
             ),
             "explanation": (
                 "The supported target-average-distillate workflow is ready."
@@ -157,8 +187,8 @@ def recommend_next_design_basis(
         return {
             "status": "ready_to_calculate",
             "recommended_next_question": (
-                "I have enough information to run the target-final-still-composition calculation. "
-                "Would you like me to calculate the distillate amount (D) and the average distillate ethanol mole fraction (xDavg)?"
+                "I have enough information to run the stopping-basis calculation. "
+                "Would you like me to calculate the distillate amount (D), average distillate ethanol mole fraction (xDavg), and distillate/feed ratio (D/W0)?"
             ),
             "explanation": "The supported target-final-still workflow is ready.",
             "next_inputs_options": [],
@@ -179,7 +209,7 @@ def recommend_next_design_basis(
         return {
             "status": "design_prototyping",
             "recommended_next_question": (
-                "Do you know either the initial ethanol mole fraction (x0) of the feed or the final still ethanol mole fraction (xB) you want to reach?"
+                "You have defined the product goal. To show possible feed requirements, do you know either the initial ethanol mole fraction (x0) of the feed or a stopping basis using final still ethanol mole fraction (xB)?"
             ),
             "explanation": (
                 "The distillate amount (D) and target average distillate ethanol mole fraction (xDavg_target) alone do not uniquely determine the required initial charge amount or feed composition, so one more design basis is needed."
@@ -191,10 +221,10 @@ def recommend_next_design_basis(
         return {
             "status": "choose_target",
             "recommended_next_question": (
-                "Do you want to target the average distillate ethanol mole fraction (xDavg_target) or the final still ethanol mole fraction (xB)?"
+                "The most product-centered next step is to compare target average distillate ethanol mole fractions (xDavg_target). If you prefer, I can also explore a stopping basis using final still ethanol mole fraction (xB)."
             ),
             "explanation": (
-                "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the next useful design choice is which target to specify."
+                "With the initial charge amount (W0) and initial ethanol mole fraction (x0) known, the most natural next design choice is a product target. A final still ethanol mole fraction (xB) can also be used as a stopping basis."
             ),
             "next_inputs_options": ["xDavg_target", "xB"],
         }

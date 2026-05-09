@@ -99,7 +99,8 @@ Partial design request
 - Example prompt:
   `"I have 1000 mol at 5 mol% ethanol, help me choose targets."`
 - The assistant can compare the known inputs against the supported workflows, explain what is still missing, identify which missing variable could be sampled next, and run compact illustrative scenario results when an existing deterministic solver can support them.
-- After scenario examples, you can continue with follow-ups like `use option 2`, `try xB = 0.007`, `show higher xB values`, or `done with this experiment`.
+- After scenario examples, you can continue with explicit commands like `use option 2`, `try xB = 0.007`, `show higher xB values`, or `done with this experiment`.
+- Natural follow-ups also work for active experiments, for example `choose the second one`, `what if xB is 0.007?`, `vary feed composition instead`, or `explain option 2`.
 
 Underdetermined design request
 

@@ -93,8 +93,19 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
     message = user_message.strip()
     lower_message = message.lower()
 
-    if lower_message in {"done with this experiment", "finish experiment"}:
+    if lower_message in {"done with this experiment", "finish experiment", "end this experiment"}:
         return _explicit_intent("end_experiment")
+
+    explain_option_match = re.fullmatch(
+        r"explain\s+option\s+(\d+)",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if explain_option_match:
+        return _explicit_intent(
+            "explain_option",
+            option_index=int(explain_option_match.group(1)),
+        )
 
     option_match = re.fullmatch(
         r"(use|choose)\s+option\s+(\d+)",
@@ -107,6 +118,19 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
             option_index=int(option_match.group(2)),
         )
 
+    relative_option_match = re.fullmatch(
+        r"(choose|use|pick|go with)\s+(?:the\s+)?(first|second|middle|last)\s+(?:one|option|case)?",
+        lower_message,
+    )
+    if relative_option_match:
+        relative_word = relative_option_match.group(2)
+        if relative_word == "second":
+            return _explicit_intent("select_option", option_index=2)
+        return _explicit_intent(
+            "select_option",
+            relative_choice=relative_word,
+        )
+
     try_match = re.fullmatch(
         r"try\s+(.+?)(?:\s*=\s*|\s+)([-+]?\d*\.?\d+%?)",
         message,
@@ -115,6 +139,22 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
     if try_match:
         variable = normalize_variable_name(try_match.group(1))
         value = _parse_numeric_value(variable, try_match.group(2))
+        if variable is None or value is None:
+            return _unknown_intent()
+        return _explicit_intent(
+            "try_custom_value",
+            target_variable=variable,
+            value=value,
+        )
+
+    what_if_match = re.fullmatch(
+        r"(?:what if|suppose)\s+(.+?)\s+(?:is|=)\s+([-+]?\d*\.?\d+%?)\??",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if what_if_match:
+        variable = normalize_variable_name(what_if_match.group(1))
+        value = _parse_numeric_value(variable, what_if_match.group(2))
         if variable is None or value is None:
             return _unknown_intent()
         return _explicit_intent(
@@ -137,6 +177,15 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
             target_variable=variable,
         )
 
+    if lower_message in {
+        "show me higher stopping compositions",
+        "show higher stopping compositions",
+    }:
+        return _explicit_intent(
+            "shift_samples_higher",
+            target_variable="xB",
+        )
+
     lower_match = re.fullmatch(
         r"show\s+lower\s+(.+?)(?:\s+values?)?",
         message,
@@ -151,6 +200,12 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
             target_variable=variable,
         )
 
+    if lower_message in {"give me lower xb cases", "show me lower xb cases"}:
+        return _explicit_intent(
+            "shift_samples_lower",
+            target_variable="xB",
+        )
+
     compare_match = re.fullmatch(
         r"compare\s+(.+?)\s+instead",
         message,
@@ -163,6 +218,16 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
         return _explicit_intent(
             "switch_sampling_axis",
             target_variable=variable,
+        )
+
+    if lower_message in {
+        "vary feed composition instead",
+        "compare starting concentrations",
+        "vary feed composition",
+    }:
+        return _explicit_intent(
+            "switch_sampling_axis",
+            target_variable="x0",
         )
 
     return _unknown_intent()

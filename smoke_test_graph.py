@@ -49,6 +49,10 @@ SHOW_HIGHER_XB_MESSAGE = "show higher xB values"
 SHOW_LOWER_XB_MESSAGE = "show lower xB values"
 COMPARE_X0_INSTEAD_MESSAGE = "compare x0 instead"
 DONE_WITH_EXPERIMENT_MESSAGE = "done with this experiment"
+CHOOSE_SECOND_ONE_MESSAGE = "choose the second one"
+WHAT_IF_XB_MESSAGE = "what if xB is 0.007?"
+VARY_FEED_COMPOSITION_MESSAGE = "vary feed composition instead"
+EXPLAIN_OPTION_2_MESSAGE = "explain option 2"
 
 
 def assert_result_keys(state: dict) -> None:
@@ -317,6 +321,60 @@ def main() -> None:
     assert not done_with_experiment.get("experiment_results")
     assert done_with_experiment.get("experiment_status") is None
     pass_check("experiment follow-up: done with experiment")
+
+    choose_second_one = app.invoke(
+        {
+            "user_message": CHOOSE_SECOND_ONE_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    choose_second_text = choose_second_one["final_answer"].lower()
+    assert "keyerror" not in choose_second_text
+    assert "traceback" not in choose_second_text
+    assert (
+        "option 2" in choose_second_text
+        or "second" in choose_second_text
+        or "which option" in choose_second_text
+    )
+    pass_check("natural follow-up: choose second one")
+
+    what_if_xb = app.invoke(
+        {
+            "user_message": WHAT_IF_XB_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    what_if_xb_text = what_if_xb["final_answer"].lower()
+    assert "keyerror" not in what_if_xb_text
+    assert "traceback" not in what_if_xb_text
+    assert "0.007" in what_if_xb["final_answer"]
+    assert "xb" in what_if_xb_text
+    pass_check("natural follow-up: what if xB")
+
+    vary_feed_composition = app.invoke(
+        {
+            "user_message": VARY_FEED_COMPOSITION_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    vary_feed_text = vary_feed_composition["final_answer"].lower()
+    assert "keyerror" not in vary_feed_text
+    assert "traceback" not in vary_feed_text
+    assert "x0" in vary_feed_text or "initial ethanol mole fraction" in vary_feed_text
+    assert "xb" in vary_feed_text or "final still" in vary_feed_text
+    pass_check("natural follow-up: vary feed composition")
+
+    explain_option_2 = app.invoke(
+        {
+            "user_message": EXPLAIN_OPTION_2_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    explain_option_2_text = explain_option_2["final_answer"].lower()
+    assert "keyerror" not in explain_option_2_text
+    assert "traceback" not in explain_option_2_text
+    assert "option 2" in explain_option_2_text or "which option" in explain_option_2_text
+    pass_check("natural follow-up: explain option 2")
 
     planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
     planning_options_text = planning_w0_x0_options["final_answer"].lower()

@@ -10,6 +10,10 @@ from agents.design_advisor_helpers import (
 from agents.design_experiments import plan_experiment_from_knowns, run_planned_scenarios
 from agents.error_handling import normalize_error_for_user
 from agents.experiment_commands import parse_experiment_command
+from agents.experiment_followup_interpreter import (
+    interpret_experiment_followup_with_llm,
+    is_plausible_experiment_followup,
+)
 from agents.prompts import build_problem_structurer_prompt
 from agents.response_style import wants_detailed_explanation
 from agents.schemas import LLMProblemRequest, ProblemRequest
@@ -164,10 +168,25 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
     experiment_followup = parse_experiment_command(user_message)
+    if (
+        state.get("active_experiment")
+        and (
+            not experiment_followup["is_experiment_followup"]
+            or experiment_followup["intent"] == "unknown"
+        )
+        and is_plausible_experiment_followup(user_message)
+    ):
+        experiment_followup = interpret_experiment_followup_with_llm(
+            user_message=user_message,
+            active_experiment=state.get("active_experiment") or {},
+            experiment_results=state.get("experiment_results"),
+            experiment_sampled_variable=state.get("experiment_sampled_variable"),
+            experiment_knowns=state.get("experiment_knowns"),
+        )
 
     if (
-        experiment_followup["is_experiment_followup"]
-        and experiment_followup["intent"] != "unknown"
+        (experiment_followup["is_experiment_followup"] and experiment_followup["intent"] != "unknown")
+        or experiment_followup.get("needs_clarification", False)
     ):
         followup_response = handle_experiment_followup(state, experiment_followup)
         if followup_response is not None:
@@ -439,8 +458,10 @@ def route_after_problem_structurer(state: BatchDistillationState) -> str:
     experiment_followup = parse_experiment_command(user_message)
     if (
         state.get("active_experiment")
-        and experiment_followup["is_experiment_followup"]
-        and experiment_followup["intent"] != "unknown"
+        and (
+            (experiment_followup["is_experiment_followup"] and experiment_followup["intent"] != "unknown")
+            or is_plausible_experiment_followup(user_message)
+        )
     ):
         return "design_advisor"
 

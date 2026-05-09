@@ -87,6 +87,15 @@ def handle_experiment_followup(
     experiment_sampled_variable = state.get("experiment_sampled_variable")
     experiment_knowns = state.get("experiment_knowns") or {}
     intent = command["intent"]
+    if command.get("needs_clarification"):
+        final_answer = command.get(
+            "clarification_question",
+            "I need one more detail before I can continue that experiment follow-up.",
+        )
+        return {
+            "guidance_response": final_answer,
+            "final_answer": final_answer,
+        }
 
     if intent == "end_experiment":
         final_answer = (
@@ -100,6 +109,14 @@ def handle_experiment_followup(
 
     if intent == "select_option":
         option_index = command["option_index"] or 0
+        if option_index == 0 and command.get("relative_choice"):
+            relative_choice = command["relative_choice"]
+            if relative_choice == "first" and experiment_results:
+                option_index = 1
+            elif relative_choice == "last" and experiment_results:
+                option_index = len(experiment_results)
+            elif relative_choice == "middle" and experiment_results:
+                option_index = (len(experiment_results) + 1) // 2
         if option_index < 1 or option_index > len(experiment_results):
             final_answer = (
                 f"I only have {len(experiment_results)} stored option(s) in the current experiment."
@@ -182,6 +199,45 @@ def handle_experiment_followup(
                 scenario_result["rows"],
                 plan=custom_plan,
             ),
+        }
+
+    if intent == "explain_option":
+        option_index = command["option_index"] or 0
+        if option_index == 0 and command.get("relative_choice"):
+            relative_choice = command["relative_choice"]
+            if relative_choice == "first" and experiment_results:
+                option_index = 1
+            elif relative_choice == "last" and experiment_results:
+                option_index = len(experiment_results)
+            elif relative_choice == "middle" and experiment_results:
+                option_index = (len(experiment_results) + 1) // 2
+        if option_index < 1:
+            final_answer = "Which option would you like me to explain?"
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+            }
+        if option_index > len(experiment_results):
+            final_answer = (
+                f"I only have {len(experiment_results)} stored option(s) in the current experiment."
+            )
+            return {
+                "guidance_response": final_answer,
+                "final_answer": final_answer,
+            }
+        row = experiment_results[option_index - 1]
+        sampled_variable = row.get("sampled_variable", experiment_sampled_variable)
+        sampled_value = row.get("sampled_value")
+        variable_label = VARIABLE_DISPLAY_NAMES.get(sampled_variable, sampled_variable)
+        explanation = (
+            f"Option {option_index} samples {variable_label} = {sampled_value:.4f}. "
+            + format_scenario_row(row).lstrip("- ")
+            + ". "
+            + "This row keeps the other experiment inputs fixed and shows the resulting scenario."
+        )
+        return {
+            "guidance_response": explanation,
+            "final_answer": explanation,
         }
 
     if intent in {"shift_samples_higher", "shift_samples_lower"}:

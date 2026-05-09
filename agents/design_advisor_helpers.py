@@ -239,8 +239,25 @@ def handle_experiment_followup(
         if variable == "x0":
             selected_row = (active_experiment or {}).get("selected_row")
             if not selected_row or "xB" not in selected_row:
+                available_xb_rows = [
+                    row
+                    for row in experiment_results
+                    if row.get("sampled_variable") == "xB" and row.get("sampled_value") is not None
+                ]
+                option_text = ""
+                if available_xb_rows:
+                    option_bits = [
+                        f"option {index + 1} (xB = {row['sampled_value']:.4f})"
+                        for index, row in enumerate(available_xb_rows[:5])
+                    ]
+                    option_text = (
+                        "\n\nAvailable xB options:\n- "
+                        + "\n- ".join(option_bits)
+                    )
                 final_answer = (
-                    "To compare initial ethanol mole fraction (x0) instead, I need a current final still ethanol mole fraction (xB) to hold fixed."
+                    "To compare initial ethanol mole fraction (x0), I need to hold one final still ethanol mole fraction (xB) fixed."
+                    + option_text
+                    + "\n\nPick one of the previous xB options, or provide your own xB value. Which xB should I hold fixed?"
                 )
                 return {
                     "guidance_response": final_answer,

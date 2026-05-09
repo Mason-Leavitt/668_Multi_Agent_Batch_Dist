@@ -275,6 +275,22 @@ def main() -> None:
     assert "traceback" not in show_lower_text
     pass_check("experiment follow-up: show lower xB")
 
+    compare_x0_without_selection = app.invoke(
+        {
+            "user_message": COMPARE_X0_INSTEAD_MESSAGE,
+            **experiment_context_from_state(planning_d_xdavg_x0),
+        }
+    )
+    compare_x0_without_selection_text = compare_x0_without_selection["final_answer"].lower()
+    assert "x0" in compare_x0_without_selection_text or "initial ethanol mole fraction" in compare_x0_without_selection_text
+    assert "xb" in compare_x0_without_selection_text
+    assert "which xb should i hold fixed" in compare_x0_without_selection_text or "pick one of the previous xb options" in compare_x0_without_selection_text
+    assert compare_x0_without_selection.get("active_experiment")
+    assert compare_x0_without_selection.get("experiment_results")
+    assert "keyerror" not in compare_x0_without_selection_text
+    assert "traceback" not in compare_x0_without_selection_text
+    pass_check("experiment follow-up: compare x0 without selection")
+
     compare_x0_instead = app.invoke(
         {
             "user_message": COMPARE_X0_INSTEAD_MESSAGE,

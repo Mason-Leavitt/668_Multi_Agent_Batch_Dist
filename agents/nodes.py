@@ -163,10 +163,13 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     user_message = state.get("user_message", "")
     user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
-    experiment_command = parse_experiment_command(user_message)
+    experiment_followup = parse_experiment_command(user_message)
 
-    if experiment_command["is_experiment_command"]:
-        followup_response = handle_experiment_followup(state, experiment_command)
+    if (
+        experiment_followup["is_experiment_followup"]
+        and experiment_followup["intent"] != "unknown"
+    ):
+        followup_response = handle_experiment_followup(state, experiment_followup)
         if followup_response is not None:
             return followup_response
 
@@ -433,7 +436,12 @@ def route_after_problem_structurer(state: BatchDistillationState) -> str:
     intent_type = state.get("intent_type")
     user_message = state.get("user_message", "")
 
-    if state.get("active_experiment") and parse_experiment_command(user_message)["is_experiment_command"]:
+    experiment_followup = parse_experiment_command(user_message)
+    if (
+        state.get("active_experiment")
+        and experiment_followup["is_experiment_followup"]
+        and experiment_followup["intent"] != "unknown"
+    ):
         return "design_advisor"
 
     # Partial-knowns and underdetermined design requests go to the design advisor.

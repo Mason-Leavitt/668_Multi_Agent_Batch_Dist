@@ -86,9 +86,9 @@ def handle_experiment_followup(
     experiment_results = state.get("experiment_results") or []
     experiment_sampled_variable = state.get("experiment_sampled_variable")
     experiment_knowns = state.get("experiment_knowns") or {}
-    action = command["action"]
+    intent = command["intent"]
 
-    if action == "clear_experiment":
+    if intent == "end_experiment":
         final_answer = (
             "Done with this experiment. I cleared the active scenario set and kept your remembered known values."
         )
@@ -98,7 +98,7 @@ def handle_experiment_followup(
             **build_active_experiment_state(None, None, None),
         }
 
-    if action == "use_option":
+    if intent == "select_option":
         option_index = command["option_index"] or 0
         if option_index < 1 or option_index > len(experiment_results):
             final_answer = (
@@ -144,8 +144,8 @@ def handle_experiment_followup(
             ),
         }
 
-    if action == "try_value":
-        variable = command["variable"]
+    if intent == "try_custom_value":
+        variable = command["target_variable"]
         value = command["value"]
         if variable is None or value is None:
             final_answer = "I could not parse that experiment value."
@@ -184,8 +184,8 @@ def handle_experiment_followup(
             ),
         }
 
-    if action in {"show_higher", "show_lower"}:
-        variable = command["variable"] or experiment_sampled_variable
+    if intent in {"shift_samples_higher", "shift_samples_lower"}:
+        variable = command["target_variable"] or experiment_sampled_variable
         if variable is None:
             final_answer = "I do not have an active sampled variable to adjust yet."
             return {
@@ -201,11 +201,11 @@ def handle_experiment_followup(
             sampled_variable=variable,
             current_values=current_values,
             knowns=experiment_knowns,
-            direction="higher" if action == "show_higher" else "lower",
+            direction="higher" if intent == "shift_samples_higher" else "lower",
         )
         if not sample_values:
             final_answer = (
-                f"I do not have any reasonable {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values to sample from the current experiment."
+                f"I do not have any reasonable {'higher' if intent == 'shift_samples_higher' else 'lower'} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values to sample from the current experiment."
             )
             return {
                 "guidance_response": final_answer,
@@ -215,12 +215,12 @@ def handle_experiment_followup(
             knowns=experiment_knowns,
             sampled_variable=variable,
             sample_values=sample_values,
-            reason=f"I sampled {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values from the current experiment.",
+            reason=f"I sampled {'higher' if intent == 'shift_samples_higher' else 'lower'} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values from the current experiment.",
             next_question="Pick one of these values, or give your own.",
         )
         scenario_result = run_planned_scenarios(experiment_knowns, custom_plan, n=100)
         final_answer = (
-            f"I sampled {action.split('_')[1]} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values.\n\n"
+            f"I sampled {'higher' if intent == 'shift_samples_higher' else 'lower'} {VARIABLE_DISPLAY_NAMES.get(variable, variable)} values.\n\n"
             + format_scenario_rows(scenario_result["rows"], max_rows=3)
         )
         return {
@@ -234,8 +234,8 @@ def handle_experiment_followup(
             ),
         }
 
-    if action == "compare_variable":
-        variable = command["variable"]
+    if intent == "switch_sampling_axis":
+        variable = command["target_variable"]
         if variable == "x0":
             selected_row = (active_experiment or {}).get("selected_row")
             if not selected_row or "xB" not in selected_row:

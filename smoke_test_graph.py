@@ -37,6 +37,11 @@ DESIGN_PROTOTYPING_MESSAGE = (
     "I want a distillate of 50 moles at a 0.2 mole fraction of ethanol. "
     "How much initial mole mixture do I need and at what mole fraction?"
 )
+PLANNING_D_XDAVG_ONLY_MESSAGE = "I want 20 mol of distillate at xDavg 0.2."
+PLANNING_D_XDAVG_X0_MESSAGE = (
+    "I want 20 mol of distillate at xDavg 0.2 and my feed x0 is 0.05."
+)
+PLANNING_W0_X0_OPTIONS_MESSAGE = "I have 1000 mol at x0 0.05 and want to compare options."
 EXPLAIN_FOLLOWUP_MESSAGE = "I don't understand. Explain the options."
 
 
@@ -178,7 +183,41 @@ def main() -> None:
     )
     assert "x0" in design_text
     assert "xb" in design_text or "final still composition" in design_text
-    assert "example scenarios" in design_text or "additional design basis" in design_text or "design basis" in design_text
+    assert (
+        "sample" in design_text
+        or "example scenarios" in design_text
+        or "design basis" in design_text
+    )
+
+    planning_d_xdavg_only = app.invoke({"user_message": PLANNING_D_XDAVG_ONLY_MESSAGE})
+    assert "final_answer" in planning_d_xdavg_only
+    assert planning_d_xdavg_only["final_answer"].strip()
+    planning_only_text = planning_d_xdavg_only["final_answer"].lower()
+    assert "20" in planning_d_xdavg_only["final_answer"]
+    assert "0.2" in planning_d_xdavg_only["final_answer"]
+    assert "x0" in planning_only_text or "feed composition" in planning_only_text
+    assert "xb" in planning_only_text or "final still" in planning_only_text
+    assert "what is w0" not in planning_only_text
+
+    planning_d_xdavg_x0 = app.invoke({"user_message": PLANNING_D_XDAVG_X0_MESSAGE})
+    assert "final_answer" in planning_d_xdavg_x0
+    assert planning_d_xdavg_x0["final_answer"].strip()
+    planning_x0_text = planning_d_xdavg_x0["final_answer"].lower()
+    assert "20" in planning_d_xdavg_x0["final_answer"]
+    assert "0.2" in planning_d_xdavg_x0["final_answer"]
+    assert "0.05" in planning_d_xdavg_x0["final_answer"]
+    assert "xb" in planning_x0_text or "final still ethanol mole fraction" in planning_x0_text
+    assert "sample" in planning_x0_text or "example" in planning_x0_text
+
+    planning_w0_x0_options = app.invoke({"user_message": PLANNING_W0_X0_OPTIONS_MESSAGE})
+    assert "final_answer" in planning_w0_x0_options
+    assert planning_w0_x0_options["final_answer"].strip()
+    planning_options_text = planning_w0_x0_options["final_answer"].lower()
+    assert "1000.000" in planning_w0_x0_options["final_answer"]
+    assert "0.050000" in planning_w0_x0_options["final_answer"]
+    assert "xdavg_target" in planning_options_text or "average distillate" in planning_options_text
+    assert "xb" in planning_options_text or "final still" in planning_options_text
+    assert "illustrative" in planning_options_text or "compare design choices" in planning_options_text
 
     print("Smoke test passed: multiple graph paths completed successfully.")
     print(f"Incomplete direct calculation handling: {incomplete_direct_calc['errors'][0]}")
@@ -214,6 +253,9 @@ def main() -> None:
     print(f"Explain follow-up: {explain_followup['final_answer']}")
     print(f"Underdetermined follow-up: {underdetermined_followup['final_answer']}")
     print(f"Design prototyping: {design_prototyping['final_answer']}")
+    print(f"Planning D + xDavg only: {planning_d_xdavg_only['final_answer']}")
+    print(f"Planning D + xDavg + x0: {planning_d_xdavg_x0['final_answer']}")
+    print(f"Planning W0 + x0 options: {planning_w0_x0_options['final_answer']}")
 
 
 if __name__ == "__main__":

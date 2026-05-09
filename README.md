@@ -97,6 +97,7 @@ Partial design request
 - Example prompt:
   `"I have 1000 mol at 5 mol% ethanol, help me choose targets."`
 - The assistant can compare the known inputs against the supported workflows, explain what is still missing, and show simple illustrative scenario results when an existing deterministic solver can support them.
+- For partial design requests, the DesignAdvisor can also identify which missing variable could be sampled to explore possible setups.
 
 Underdetermined design request
 

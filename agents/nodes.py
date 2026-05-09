@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 
+from agents.design_experiments import plan_experiment_from_knowns
 from agents.error_handling import VARIABLE_DISPLAY_NAMES, normalize_error_for_user
 from agents.prompts import build_problem_structurer_prompt
 from agents.response_style import wants_detailed_explanation
@@ -160,6 +161,7 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     knowns = state.get("knowns", {})
     unknowns = state.get("unknowns", [])
     user_message = state.get("user_message", "")
+    user_goal = state.get("user_goal", user_message)
     wants_detail = wants_detailed_explanation(user_message)
     wants_examples = any(
         phrase in user_message.lower()
@@ -170,7 +172,11 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         knowns=knowns,
         requested_outputs=unknowns,
     )
-    recommendation = analysis["recommendation"]
+    experiment_plan = plan_experiment_from_knowns(
+        knowns=knowns,
+        requested_outputs=unknowns,
+        user_goal=user_goal,
+    )
     prototype = prototype_supported_scenarios(knowns)
 
     if knowns:
@@ -193,18 +199,15 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
         knowns_block = "Known inputs so far:\n- none yet"
         knowns_summary = "You have not given any numeric inputs yet."
 
-    if analysis["ready_workflows"]:
-        status_intro = (
-            "You already have enough information for at least one supported deterministic workflow."
-        )
-    elif "D" in knowns and "xDavg_target" in knowns and "W0" not in knowns and "x0" not in knowns:
-        status_intro = (
-            "Your request is still underdetermined: the distillate amount (D) and target average distillate ethanol mole fraction (xDavg_target) alone do not uniquely determine the initial charge amount (W0) and initial ethanol mole fraction (x0)."
-        )
+    plan_status = experiment_plan["status"]
+    if plan_status == "ready_to_calculate":
+        status_intro = "You already have enough information for a supported workflow."
+    elif plan_status == "choose_sampling_axis":
+        status_intro = "Your design is not unique yet."
+    elif plan_status == "sample_possible":
+        status_intro = "I can help you explore a useful sampling axis."
     else:
-        status_intro = (
-            "I can compare your current knowns against the supported workflows and suggest the next useful design basis."
-        )
+        status_intro = "I can suggest the next useful design basis."
 
     relevant_workflow_lines = []
     for workflow in analysis["closest_workflows"]:
@@ -262,6 +265,41 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     else:
         scenario_block = ""
 
+    planning_lines = []
+    if experiment_plan["candidate_sampling_variables"]:
+        planning_lines.append(
+            "Candidate sampling variables: "
+            + ", ".join(
+                VARIABLE_DISPLAY_NAMES.get(name, VARIABLE_DESCRIPTIONS.get(name, name))
+                for name in experiment_plan["candidate_sampling_variables"]
+            )
+        )
+    if experiment_plan["recommended_sampling_variable"]:
+        recommended_variable = experiment_plan["recommended_sampling_variable"]
+        if recommended_variable == "both":
+            planning_lines.append(
+                "Recommended sampling plan: compare both target average distillate composition (xDavg_target) and final still ethanol mole fraction (xB)."
+            )
+        else:
+            planning_lines.append(
+                "Recommended sampling variable: "
+                + VARIABLE_DISPLAY_NAMES.get(
+                    recommended_variable,
+                    VARIABLE_DESCRIPTIONS.get(recommended_variable, recommended_variable),
+                )
+            )
+    if experiment_plan["sample_values"]:
+        sample_lines = []
+        for variable_name, values in experiment_plan["sample_values"].items():
+            if not values:
+                continue
+            sample_lines.append(
+                f"- {VARIABLE_DISPLAY_NAMES.get(variable_name, VARIABLE_DESCRIPTIONS.get(variable_name, variable_name))}: "
+                + ", ".join(f"{value:.4f}" for value in values[:5])
+            )
+        if sample_lines:
+            planning_lines.append("Illustrative sample values:\n" + "\n".join(sample_lines))
+
     if wants_detail:
         final_answer = (
             status_intro
@@ -270,25 +308,39 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
             + "\n\nRelevant supported workflows:\n"
             + "\n".join(relevant_workflow_lines)
             + "\n\n"
-            + recommendation["explanation"]
+            + experiment_plan["reason"]
         )
+
+        if planning_lines:
+            final_answer += "\n\n" + "\n\n".join(planning_lines)
 
         if scenario_block:
             final_answer += "\n\n" + scenario_block
 
-        final_answer += "\n\n" + recommendation["recommended_next_question"]
+        final_answer += "\n\n" + experiment_plan["next_question"]
     else:
-        brief_parts = [knowns_summary, recommendation["explanation"], recommendation["recommended_next_question"]]
+        brief_parts = [knowns_summary, experiment_plan["reason"], experiment_plan["next_question"]]
         final_answer = "\n\n".join(part for part in brief_parts if part)
 
-        if wants_examples and compact_example_lines:
+        if plan_status == "sample_possible" and wants_examples and compact_example_lines:
             final_answer += (
                 "\n\nIllustrative example scenarios:\n"
                 + "\n".join(compact_example_lines[:3])
                 + "\n\nThese examples help compare design choices."
             )
-        elif compact_example_lines:
+        elif plan_status == "sample_possible" and compact_example_lines:
             final_answer += "\n\nIf you want, I can also show example scenarios."
+        elif plan_status == "sample_possible" and experiment_plan["sample_values"]:
+            sample_text_lines = []
+            for variable_name, values in experiment_plan["sample_values"].items():
+                if not values:
+                    continue
+                sample_text_lines.append(
+                    f"- {VARIABLE_DISPLAY_NAMES.get(variable_name, VARIABLE_DESCRIPTIONS.get(variable_name, variable_name))}: "
+                    + ", ".join(f"{value:.4f}" for value in values[:3])
+                )
+            if sample_text_lines:
+                final_answer += "\n\nIllustrative sample values:\n" + "\n".join(sample_text_lines)
 
     return {
         "guidance_response": final_answer,

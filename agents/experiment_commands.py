@@ -1,7 +1,7 @@
 import re
 from typing import Literal, TypedDict
 
-from agents.session_commands import normalize_variable_name
+from agents.session_commands import COMPOSITION_VARIABLES, normalize_variable_name
 
 
 ExperimentCommandAction = Literal[
@@ -23,11 +23,13 @@ class ExperimentCommandResult(TypedDict):
     option_index: int | None
 
 
-def _parse_numeric_value(raw_value: str) -> float | None:
+def _parse_numeric_value(variable: str | None, raw_value: str) -> float | None:
     value_text = raw_value.strip().lower()
     if not value_text:
         return None
     if value_text.endswith("%"):
+        if variable not in COMPOSITION_VARIABLES:
+            return None
         try:
             return float(value_text[:-1].strip()) / 100.0
         except ValueError:
@@ -72,7 +74,7 @@ def parse_experiment_command(user_message: str) -> ExperimentCommandResult:
     )
     if try_match:
         variable = normalize_variable_name(try_match.group(1))
-        value = _parse_numeric_value(try_match.group(2))
+        value = _parse_numeric_value(variable, try_match.group(2))
         return {
             "is_experiment_command": variable is not None and value is not None,
             "action": "try_value" if variable is not None and value is not None else "none",

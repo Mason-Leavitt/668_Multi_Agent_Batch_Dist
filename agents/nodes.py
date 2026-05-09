@@ -38,8 +38,6 @@ def _format_scenario_row(row: dict) -> str:
             f"{sampled_variable}={sample_value:.4f} -> W0={row['W0']:.3f} mol, "
             f"B={row['B']:.3f} mol, check={status}"
         )
-        if row.get("rayleigh_error") is not None:
-            line += f", rayleigh_error={row['rayleigh_error']:.6g}"
         return line
     if sampled_variable == "xDavg_target":
         line = (
@@ -207,7 +205,6 @@ def design_advisor_node(state: BatchDistillationState) -> BatchDistillationState
     experiment_results = state.get("experiment_results") or []
     experiment_sampled_variable = state.get("experiment_sampled_variable")
     experiment_knowns = state.get("experiment_knowns") or {}
-    experiment_status = state.get("experiment_status")
     experiment_command = parse_experiment_command(user_message)
 
     if experiment_command["is_experiment_command"] and active_experiment:

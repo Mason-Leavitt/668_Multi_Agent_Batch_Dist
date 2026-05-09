@@ -81,6 +81,18 @@ def main() -> None:
             }:
                 session_knowns = {}
                 clarification_question = None
+                active_experiment = None
+                experiment_results = None
+                experiment_sampled_variable = None
+                experiment_knowns = None
+                experiment_status = None
+
+            if final_state.get("calculation_success") is True:
+                active_experiment = None
+                experiment_results = None
+                experiment_sampled_variable = None
+                experiment_knowns = None
+                experiment_status = None
 
             print(f"\nAssistant: {final_state['final_answer']}")
         except Exception as exc:

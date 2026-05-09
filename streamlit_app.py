@@ -65,6 +65,8 @@ def main() -> None:
         st.markdown(
             "- `Face`\n"
             "- `ProblemStructurer`\n"
+            "- `GuidanceResponder`\n"
+            "- `DesignAdvisor`\n"
             "- `ValidationCalculation`\n"
             "- `ResultExplainer`"
         )
@@ -82,7 +84,9 @@ def main() -> None:
             )
         if st.session_state.active_experiment and st.session_state.experiment_sampled_variable:
             st.caption(
-                f"Active experiment: sampling {st.session_state.experiment_sampled_variable}"
+                "Active experiment: "
+                f"sampling {st.session_state.experiment_sampled_variable} "
+                f"with {len(st.session_state.experiment_results or [])} stored row(s)"
             )
         with st.expander("Example prompts", expanded=False):
             st.markdown(
@@ -187,6 +191,18 @@ def main() -> None:
             }:
                 st.session_state.prior_knowns = {}
                 st.session_state.prior_clarification_question = None
+                st.session_state.active_experiment = None
+                st.session_state.experiment_results = None
+                st.session_state.experiment_sampled_variable = None
+                st.session_state.experiment_knowns = None
+                st.session_state.experiment_status = None
+
+            if final_state.get("calculation_success") is True:
+                st.session_state.active_experiment = None
+                st.session_state.experiment_results = None
+                st.session_state.experiment_sampled_variable = None
+                st.session_state.experiment_knowns = None
+                st.session_state.experiment_status = None
     except Exception as exc:
         assistant_message = normalize_error_for_user(exc)
 

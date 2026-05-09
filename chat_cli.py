@@ -73,12 +73,23 @@ def main() -> None:
             experiment_sampled_variable = final_state.get("experiment_sampled_variable")
             experiment_knowns = final_state.get("experiment_knowns")
             experiment_status = final_state.get("experiment_status")
+            has_active_experiment_context = bool(
+                active_experiment
+                or experiment_results
+                or experiment_knowns
+                or experiment_sampled_variable
+            )
 
-            if not awaiting_clarification and final_state.get("intent_type") not in {
-                "design_prototyping",
-                "open_ended_guidance",
-                "conceptual_question",
-            }:
+            if (
+                not awaiting_clarification
+                and not has_active_experiment_context
+                and final_state.get("intent_type")
+                not in {
+                    "design_prototyping",
+                    "open_ended_guidance",
+                    "conceptual_question",
+                }
+            ):
                 session_knowns = {}
                 clarification_question = None
                 active_experiment = None

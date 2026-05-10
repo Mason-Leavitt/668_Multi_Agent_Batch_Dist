@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .intent_analysis import analyze_batch_capabilities
 from .schemas import GoalClassification
 from .workflow_schemas import WorkflowPlan
 
@@ -252,6 +253,11 @@ def _plan_solve_rayleigh_batch_variables(classification: GoalClassification) -> 
     plan = _base_plan(classification)
     normalized_knowns = _normalized_rayleigh_knowns(classification)
     known_set = set(normalized_knowns)
+    capability = analyze_batch_capabilities(
+        known_quantities=classification.variable_assignments,
+        requested_outputs=classification.requested_outputs,
+        candidate_goals=[classification.goal],
+    )
     plan.available_inputs = _dedupe(_assigned_keys(classification))
     plan.normalization_steps.append(
         "Convert user-facing volume and ABV inputs to internal moles and mole fractions where needed."
@@ -276,16 +282,19 @@ def _plan_solve_rayleigh_batch_variables(classification: GoalClassification) -> 
         {"D", "xDavg", "x0"},
         {"D", "xDavg", "xB"},
     ]
-    plan.ready_to_execute = any(case.issubset(known_set) for case in supported_case_sets)
+    plan.ready_to_execute = any(case.issubset(known_set) for case in supported_case_sets) or capability.can_calculate_now
     if plan.ready_to_execute:
         plan.missing_inputs = []
     else:
-        candidate_missing_lists = [
-            [name for name in case if name not in known_set]
-            for case in supported_case_sets
-        ]
-        candidate_missing_lists.sort(key=lambda items: (len(items), items))
-        plan.missing_inputs = candidate_missing_lists[0] if candidate_missing_lists else list(classification.missing_inputs)
+        if capability.blocking_missing_values:
+            plan.missing_inputs = list(capability.blocking_missing_values)
+        else:
+            candidate_missing_lists = [
+                [name for name in case if name not in known_set]
+                for case in supported_case_sets
+            ]
+            candidate_missing_lists.sort(key=lambda items: (len(items), items))
+            plan.missing_inputs = candidate_missing_lists[0] if candidate_missing_lists else list(classification.missing_inputs)
     if plan.ready_to_execute:
         plan.suggested_next_message = (
             "This request is ready for a direct Rayleigh-constrained solve."
@@ -300,6 +309,11 @@ def _plan_solve_rayleigh_batch_variables(classification: GoalClassification) -> 
 def _plan_solve_mole_balance(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
     normalized_knowns = _normalized_balance_knowns(classification)
+    capability = analyze_batch_capabilities(
+        known_quantities=classification.variable_assignments,
+        requested_outputs=classification.requested_outputs,
+        candidate_goals=[classification.goal],
+    )
     plan.available_inputs = _dedupe(_assigned_keys(classification))
     plan.normalization_steps.append(
         "Convert user-facing volume and ABV inputs to internal moles and mole fractions where needed."
@@ -324,8 +338,8 @@ def _plan_solve_mole_balance(classification: GoalClassification) -> WorkflowPlan
         {"W0", "D", "xDavg", "xB"},
         {"W0", "x0", "D", "xB"},
     ]
-    plan.ready_to_execute = any(case.issubset(set(normalized_knowns)) for case in supported_case_sets)
-    plan.missing_inputs = list(classification.missing_inputs)
+    plan.ready_to_execute = any(case.issubset(set(normalized_knowns)) for case in supported_case_sets) or capability.can_calculate_now
+    plan.missing_inputs = list(capability.blocking_missing_values or classification.missing_inputs)
     if plan.ready_to_execute:
         plan.suggested_next_message = (
             "This request has enough known values for a mole-balance solve."

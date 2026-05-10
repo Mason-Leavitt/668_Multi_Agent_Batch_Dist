@@ -6,13 +6,12 @@ Deterministic keyword classification is not used as a fallback because it can mi
 Lightweight deterministic feature extraction may still be used only as hint context for the LLM.
 `variable_assignments` may contain strings or simple numeric values.
 
-It does not run engineering calculations yet.
 It does not implement tool calling, memory, or multi-agent orchestration yet.
 
 Classification identifies the user's goal.
 Workflow planning maps that goal to required inputs, normalization needs, future calculation steps, and result-formatting expectations.
 The workflow planner distinguishes between variables mentioned by the user and variables with actual assigned values. A workflow is only `ready_to_execute` when the required values are present.
-The app now runs selected deterministic workflows.
+The app now runs selected deterministic engineering workflows after planning and confirmation.
 
 Create a `.env` file in the project root:
 
@@ -56,8 +55,7 @@ Volume and ABV are first-class user inputs, so users do not need to convert requ
 Recent volume and ABV targets can be reused when the user clarifies the intended workflow in the next turn.
 
 If the LLM call fails, the app reports the error instead of pretending to classify the request.
-The agent only classifies intent right now.
-Calculations and tool routing will be added later.
+The app can classify intent, plan supported workflows, execute implemented deterministic workflows, display results, explain results, and answer supported result follow-up questions.
 
 ## Workflow Planning
 
@@ -72,16 +70,13 @@ This plan answers:
 - which result-formatting steps are expected
 - whether the request is ready to execute
 
-The next implementation step is to connect one workflow path to the deterministic engineering functions without changing the classifier or planner roles.
-
-## First Executable Workflow
-
 `feed_to_product_sweep`, `product_to_feed_sweep`, `solve_mole_balance`, and `solve_rayleigh_batch_variables` are executable now.
 Other goals can still be classified and planned, but they are not executed yet.
-This executable workflow uses deterministic engineering functions from the existing engineering package.
+These workflows use deterministic engineering functions from the existing engineering package.
 The LLM is used only for classification, not for math.
 The agent asks for confirmation in chat before executing deterministic calculations.
 The results table and plot appear in a separate Results section below the chat.
+Successful workflow runs are also explained automatically in chat.
 You can ask follow-up questions like `explain the results` in the chat.
 The chat can also answer follow-up questions about the most recent result table.
 The first supported result lookup is: given a desired `xDavg` ABV percent, return the nearest `D_volume_L` from the current sweep.

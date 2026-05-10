@@ -1,3 +1,9 @@
+"""Deterministic unit and composition conversion tools for engineering workflows.
+
+This module converts among mixture amounts, mole fractions, and user-facing
+volume/ABV representations. It is a calculation helper, not an agent module.
+"""
+
 import engineering.constant_references as refs
 import math
 

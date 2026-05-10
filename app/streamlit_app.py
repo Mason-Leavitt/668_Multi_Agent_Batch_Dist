@@ -1,14 +1,24 @@
-"""Chat-based Streamlit UI for the batch distillation interface agent prototype."""
+"""Chat-based UI/controller for the batch-distillation agent workflow.
+
+This module orchestrates chat state, routing, planning, deterministic workflow
+execution, and results rendering. It is application glue rather than an agent
+or an engineering calculation module.
+"""
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import streamlit as st
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+STILL_DIAGRAM_PATH = Path(__file__).resolve().with_name("still_diagram.jpg")
+load_dotenv()
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -27,24 +37,46 @@ from agents.conversation_router import (
     safe_confirmation_fallback,
 )
 from agents.interface_agent import classify_goal
+from agents.intent_analysis import (
+    analyze_intent_capabilities,
+    build_incomplete_workflow_response,
+    build_pending_incomplete_followup_response,
+)
 from agents.result_explainer import explain_execution_result
 from agents.result_query import (
     answer_result_question,
     answer_followup_about_matched_row,
     extract_abv_target_percent,
-    find_closest_row_by_column,
     refers_to_matched_row,
 )
 from agents.workflow_executor import execute_workflow
 from agents.workflow_planner import create_workflow_plan
+from app.ui_metadata import (
+    get_current_known_variables,
+    get_missing_value_display_name,
+    get_variable_reference,
+    get_workflow_reference,
+)
 
 CHAT_CONTAINER = None
+ENV_API_KEY_NAME = "OPENAI_API_KEY"
 
 
 def stream_text(text: str):
     words = text.split(" ")
     for word in words:
         yield word + " "
+
+
+def get_active_api_key() -> str | None:
+    session_key = st.session_state.get("session_api_key")
+    if session_key:
+        return session_key
+    return os.getenv(ENV_API_KEY_NAME)
+
+
+def _get_env_api_key() -> str | None:
+    return os.getenv(ENV_API_KEY_NAME)
 
 
 def _append_message(role: str, content: str) -> None:
@@ -79,6 +111,105 @@ def add_assistant_message(content: str, stream: bool = True) -> None:
 def _clear_pending_intent() -> None:
     st.session_state.pending_intent_hint = None
     st.session_state.pending_intent_context = None
+
+
+def _clear_pending_incomplete_workflow() -> None:
+    st.session_state.pending_incomplete_workflow = None
+
+
+def _build_result_signature(execution_result) -> str:
+    payload = {
+        "workflow_name": execution_result.workflow_name,
+        "success": execution_result.success,
+        "message": execution_result.message,
+        "columns": execution_result.columns,
+        "rows": execution_result.rows,
+        "normalized_inputs": execution_result.normalized_inputs,
+        "execution_parameters": execution_result.execution_parameters,
+    }
+    return json.dumps(payload, sort_keys=True, default=str)
+
+
+def _build_basic_result_explanation(execution_result) -> str:
+    workflow_name = execution_result.workflow_name.replace("_", " ")
+    row_count = len(execution_result.rows)
+    columns = execution_result.columns[:4]
+    column_text = ", ".join(columns) if columns else "the reported output columns"
+
+    if execution_result.workflow_name == "feed_to_product_sweep":
+        explanation = (
+            f"I ran a {workflow_name}. The table shows candidate product outcomes for the feed you provided, "
+            f"and the graph highlights how product amount and average distillate composition vary across the sweep. "
+            f"There {'is' if row_count == 1 else 'are'} {row_count} result row{'s' if row_count != 1 else ''}, with key columns such as {column_text}."
+        )
+    elif execution_result.workflow_name == "product_to_feed_sweep":
+        explanation = (
+            f"I ran a {workflow_name}. The table shows candidate starting feed conditions that could produce your target product, "
+            f"and the graph summarizes how feed amount and feed composition trade off across the feasible combinations. "
+            f"There {'is' if row_count == 1 else 'are'} {row_count} result row{'s' if row_count != 1 else ''}, with key columns such as {column_text}."
+        )
+    elif execution_result.workflow_name == "solve_mole_balance":
+        explanation = (
+            f"I ran a {workflow_name}. This result solves the batch variables from the total balance and ethanol balance only, "
+            f"so it explains the reported amounts and compositions without enforcing Rayleigh behavior. "
+            f"The one-row result highlights key outputs such as {column_text}."
+        )
+    elif execution_result.workflow_name == "solve_rayleigh_batch_variables":
+        explanation = (
+            f"I ran a {workflow_name}. This result solves one direct Rayleigh-constrained batch case using the balances and the Rayleigh equation, "
+            f"so the one-row output shows the feed, product, and remaining-still state that are mutually consistent. "
+            f"The key reported columns include {column_text}."
+        )
+    else:
+        explanation = (
+            f"I ran the {workflow_name} workflow successfully. The results table shows {row_count} row{'s' if row_count != 1 else ''} "
+            f"with key reported columns such as {column_text}."
+        )
+
+    if execution_result.warnings:
+        explanation += f" Important caveat: {execution_result.warnings[0]}"
+
+    explanation += " You can ask follow-up questions about specific rows, variables, or assumptions."
+    return explanation
+
+
+def _maybe_auto_explain_result() -> None:
+    result = st.session_state.last_execution_result
+    if result is None or not result.success:
+        return
+    if not (result.rows or result.normalized_inputs or result.execution_parameters):
+        return
+
+    explanation_key = f"{st.session_state.last_execution_token}:{_build_result_signature(result)}"
+    if st.session_state.last_auto_explained_result_signature == explanation_key:
+        return
+
+    api_key = get_active_api_key()
+    if not api_key:
+        explanation = (
+            f"{_build_basic_result_explanation(result)} "
+            "Add an API key to enable richer automatic natural-language explanations."
+        )
+        add_assistant_message(explanation)
+        st.session_state.last_auto_explained_result_signature = explanation_key
+        return
+
+    try:
+        explanation = explain_execution_result(
+            user_message=st.session_state.last_user_request,
+            classification=st.session_state.last_classification,
+            plan=st.session_state.last_plan,
+            execution_result=result,
+            model_name=st.session_state.model_name,
+            api_key=api_key,
+        )
+        add_assistant_message(explanation)
+        st.session_state.last_auto_explained_result_signature = explanation_key
+        st.session_state.result_explanation_error = None
+    except Exception as exc:
+        st.session_state.result_explanation_error = str(exc)
+        add_assistant_message(_build_basic_result_explanation(result))
+        st.session_state.last_auto_explained_result_signature = explanation_key
 
 
 def _update_recent_request_context(user_message: str) -> None:
@@ -147,18 +278,44 @@ def _build_contextual_classification_message(
 
 
 def _build_missing_inputs_message(classification, plan) -> str:
+    missing_names = [
+        get_missing_value_display_name(str(name))
+        for name in plan.missing_inputs
+    ]
+    missing_text = ", ".join(missing_names)
+
     if classification.goal == "product_to_feed_sweep":
+        if missing_text:
+            return (
+                "That sounds like a product-to-feed sweep. "
+                f"I still need {missing_text}."
+            )
         return "That sounds like a product-to-feed sweep. What product amount and ABV do you want to target?"
     if classification.goal == "feed_to_product_sweep":
+        if missing_text:
+            return (
+                "That sounds like a feed-to-product sweep. "
+                f"I still need {missing_text}."
+            )
         return "That sounds like a feed-to-product sweep. What feed volume and ABV do you want to start with?"
     if classification.goal == "solve_rayleigh_batch_variables":
+        if missing_text:
+            return (
+                "That sounds like a direct Rayleigh solve. "
+                f"I still need {missing_text} for one supported case."
+            )
         return "That sounds like a direct Rayleigh solve. Give me the missing feed, product, or stopping-composition values for one supported case."
     if classification.goal == "solve_mole_balance":
+        if missing_text:
+            return (
+                "That sounds like a mole-balance solve. "
+                f"I still need {missing_text}."
+            )
         return "That sounds like a mole-balance solve. Give me more known feed, product, or bottoms values so I can solve the remaining variables."
     return build_plan_confirmation_message(classification, plan)
 
 
-def _build_tentative_confirmation_message(classification, plan) -> str:
+def _build_tentative_confirmation_message(classification) -> str:
     if classification.goal == "product_to_feed_sweep":
         return (
             "I think this is a product-to-feed sweep: you have a desired product target and want "
@@ -209,6 +366,7 @@ def _build_conversation_context() -> dict:
         "has_pending_plan": st.session_state.pending_plan is not None,
         "pending_goal": pending_goal,
         "pending_user_request": st.session_state.pending_user_request,
+        "has_pending_incomplete_workflow": st.session_state.pending_incomplete_workflow is not None,
         "has_last_execution_result": last_execution_result is not None,
         "last_workflow_name": last_workflow_name,
         "last_result_columns": last_result_columns,
@@ -261,9 +419,13 @@ def build_plan_confirmation_message(classification, plan) -> str:
         )
 
     if not plan.ready_to_execute:
+        missing_names = [
+            get_missing_value_display_name(str(name))
+            for name in plan.missing_inputs
+        ]
         return (
             f"I understand this as a `{classification.goal}` request, but I need values for "
-            f"{', '.join(plan.missing_inputs)} before I can run it."
+            f"{', '.join(missing_names)} before I can run it."
         )
 
     key_normalization = plan.normalization_steps[0] if plan.normalization_steps else "No input normalization is needed."
@@ -275,15 +437,15 @@ def build_plan_confirmation_message(classification, plan) -> str:
     )
 
 
-def _render_plot(execution_result) -> None:
+def _render_plot(execution_result) -> bool:
     if not execution_result.success:
-        return
+        return False
     normalized_inputs = execution_result.normalized_inputs
     try:
         if execution_result.workflow_name == "feed_to_product_sweep":
             if "W0" not in normalized_inputs or "x0" not in normalized_inputs:
                 st.warning("Plot inputs are incomplete, so the plot could not be shown.")
-                return
+                return False
             create_plot_D_vs_xDavg_in_L_ABV(
                 execution_result.rows,
                 float(normalized_inputs["W0"]),
@@ -292,12 +454,12 @@ def _render_plot(execution_result) -> None:
             fig = plt.gcf()
             st.pyplot(fig)
             plt.close(fig)
-            return
+            return True
 
         if execution_result.workflow_name == "product_to_feed_sweep":
             if "D" not in normalized_inputs or "xDavg" not in normalized_inputs:
                 st.warning("Plot inputs are incomplete, so the plot could not be shown.")
-                return
+                return False
             create_plot_W0_vs_x0_combinations_in_L_ABV(
                 execution_result.rows,
                 float(normalized_inputs["D"]),
@@ -306,10 +468,42 @@ def _render_plot(execution_result) -> None:
             fig = plt.gcf()
             st.pyplot(fig)
             plt.close(fig)
-            return
+            return True
         st.info("No plot is currently available for this workflow.")
+        return False
     except Exception as exc:
         st.warning(f"Plot display failed: {exc}")
+        return False
+
+
+def _render_sidebar_reference_panels() -> None:
+    with st.expander("Implemented Workflows", expanded=False):
+        for workflow in get_workflow_reference():
+            with st.expander(str(workflow["display_name"]), expanded=False):
+                st.write(str(workflow["description"]))
+                st.markdown("**Required inputs**")
+                for item in workflow["required_inputs"]:
+                    st.write(f"- {item}")
+                optional_inputs = workflow.get("optional_inputs", [])
+                if optional_inputs:
+                    st.markdown("**Optional inputs**")
+                    for item in optional_inputs:
+                        st.write(f"- {item}")
+                st.markdown("**Outputs / what it can calculate**")
+                for item in workflow["outputs"]:
+                    st.write(f"- {item}")
+                if workflow.get("notes"):
+                    st.caption(str(workflow["notes"]))
+
+    with st.expander("Variables and Keywords", expanded=False):
+        for variable in get_variable_reference():
+            with st.expander(str(variable["symbol"]), expanded=False):
+                st.write(f"**Meaning:** {variable['description']}")
+                st.write(f"**User-facing units:** {variable['user_facing_units']}")
+                st.write(f"**Internal units:** {variable['internal_units']}")
+                st.markdown("**Keywords / aliases**")
+                for keyword in variable["aliases"]:
+                    st.write(f"- {keyword}")
 
 
 def _handle_confirmation_message(user_message: str) -> None:
@@ -320,6 +514,8 @@ def _handle_confirmation_message(user_message: str) -> None:
                 st.session_state.pending_classification,
                 st.session_state.pending_plan,
             )
+            st.session_state.execution_counter += 1
+            st.session_state.last_execution_token = st.session_state.execution_counter
             st.session_state.last_execution_result = result
             st.session_state.last_classification = st.session_state.pending_classification
             st.session_state.last_plan = st.session_state.pending_plan
@@ -329,10 +525,12 @@ def _handle_confirmation_message(user_message: str) -> None:
             st.session_state.pending_plan = None
             st.session_state.pending_user_request = None
             _clear_pending_intent()
+            _clear_pending_incomplete_workflow()
             if result.success:
                 add_assistant_message(
                     "Done. I ran the workflow. The results are available in the Results section below.",
                 )
+                _maybe_auto_explain_result()
             else:
                 add_assistant_message(
                     "I ran the planned workflow, but the deterministic engineering layer returned an execution failure. The details are shown below.",
@@ -353,6 +551,7 @@ def _handle_confirmation_message(user_message: str) -> None:
         st.session_state.pending_plan = None
         st.session_state.pending_user_request = None
         _clear_pending_intent()
+        _clear_pending_incomplete_workflow()
         add_assistant_message("Okay. Send a revised request when you want to adjust the plan.")
         return
 
@@ -370,6 +569,7 @@ def _handle_general_conversation(user_message: str) -> None:
             last_plan=st.session_state.last_plan,
             last_execution_result=st.session_state.last_execution_result,
             model_name=st.session_state.model_name,
+            api_key=get_active_api_key(),
         )
         add_assistant_message(response)
     except Exception as exc:
@@ -391,8 +591,13 @@ def _handle_explanation_request() -> None:
             plan=st.session_state.last_plan,
             execution_result=st.session_state.last_execution_result,
             model_name=st.session_state.model_name,
+            api_key=get_active_api_key(),
         )
         add_assistant_message(explanation)
+        st.session_state.last_auto_explained_result_signature = (
+            f"{st.session_state.last_execution_token}:"
+            f"{_build_result_signature(st.session_state.last_execution_result)}"
+        )
     except Exception as exc:
         st.session_state.result_explanation_error = str(exc)
         add_assistant_message("Result explanation failed. Check the debug details in the Results section.")
@@ -468,14 +673,32 @@ def _handle_new_task_request(
             classification_message,
             model_name=st.session_state.model_name,
             classification_hint=classification_hint,
+            api_key=get_active_api_key(),
         )
         plan = create_workflow_plan(classification)
+        intent_analysis = analyze_intent_capabilities(
+            user_message or classification_message,
+            classification=classification,
+            plan=plan,
+        )
         _clear_pending_intent()
         st.session_state.pending_classification = classification
         st.session_state.pending_plan = plan
         st.session_state.pending_user_request = user_message or classification_message
 
-        if classification.confidence < 0.45:
+        if plan.ready_to_execute:
+            _clear_pending_incomplete_workflow()
+        elif intent_analysis.domain_relevant:
+            st.session_state.pending_incomplete_workflow = {
+                "user_request": user_message or classification_message,
+                "classification": classification,
+                "plan": plan,
+                "intent_analysis": intent_analysis,
+            }
+        else:
+            _clear_pending_incomplete_workflow()
+
+        if classification.confidence < 0.45 and not intent_analysis.domain_relevant:
             st.session_state.awaiting_confirmation = False
             add_assistant_message(_build_missing_inputs_message(classification, plan))
         elif plan.ready_to_execute and classification.confidence >= 0.75:
@@ -483,10 +706,12 @@ def _handle_new_task_request(
             add_assistant_message(build_plan_confirmation_message(classification, plan))
         elif plan.ready_to_execute:
             st.session_state.awaiting_confirmation = True
-            add_assistant_message(_build_tentative_confirmation_message(classification, plan))
+            add_assistant_message(_build_tentative_confirmation_message(classification))
         else:
             st.session_state.awaiting_confirmation = False
-            if classification.goal == "product_to_feed_sweep":
+            if intent_analysis.domain_relevant and not plan.ready_to_execute:
+                add_assistant_message(build_incomplete_workflow_response(intent_analysis))
+            elif classification.goal == "product_to_feed_sweep":
                 st.session_state.pending_intent_hint = "product_to_feed_sweep"
                 st.session_state.pending_intent_context = st.session_state.pending_user_request
                 add_assistant_message(_build_missing_inputs_message(classification, plan))
@@ -499,12 +724,21 @@ def _handle_new_task_request(
         add_assistant_message("Classification failed. Check the debug details in the Results section.")
 
 
-def _handle_intent_hint_request(user_message: str) -> bool:
-    return False
+def _handle_pending_incomplete_workflow_followup(user_message: str) -> bool:
+    pending = st.session_state.pending_incomplete_workflow
+    if pending is None:
+        return False
 
+    intent_analysis = pending.get("intent_analysis")
+    if intent_analysis is None:
+        return False
 
-def _handle_pending_intent_completion(user_message: str) -> bool:
-    return False
+    response = build_pending_incomplete_followup_response(user_message, intent_analysis)
+    if response is None:
+        return False
+
+    add_assistant_message(response)
+    return True
 
 
 def _handle_workflow_clarification(user_message: str, route) -> None:
@@ -534,6 +768,8 @@ def _init_session_state() -> None:
         ]
     if "model_name" not in st.session_state:
         st.session_state.model_name = "gpt-4o-mini"
+    if "session_api_key" not in st.session_state:
+        st.session_state.session_api_key = ""
     if "pending_classification" not in st.session_state:
         st.session_state.pending_classification = None
     if "pending_plan" not in st.session_state:
@@ -562,6 +798,8 @@ def _init_session_state() -> None:
         st.session_state.pending_intent_hint = None
     if "pending_intent_context" not in st.session_state:
         st.session_state.pending_intent_context = None
+    if "pending_incomplete_workflow" not in st.session_state:
+        st.session_state.pending_incomplete_workflow = None
     if "recent_request_context" not in st.session_state:
         st.session_state.recent_request_context = None
     if "last_route" not in st.session_state:
@@ -572,6 +810,12 @@ def _init_session_state() -> None:
         st.session_state.last_result_query_row = None
     if "last_result_query_metadata" not in st.session_state:
         st.session_state.last_result_query_metadata = None
+    if "last_auto_explained_result_signature" not in st.session_state:
+        st.session_state.last_auto_explained_result_signature = None
+    if "execution_counter" not in st.session_state:
+        st.session_state.execution_counter = 0
+    if "last_execution_token" not in st.session_state:
+        st.session_state.last_execution_token = 0
 
 
 st.set_page_config(page_title="Batch Distillation Interface Agent Prototype", layout="wide")
@@ -587,9 +831,36 @@ st.caption(
 )
 
 with st.sidebar:
+    st.header("API Key")
+    env_api_key = _get_env_api_key()
+    if st.session_state.session_api_key:
+        st.success("Using session API key override")
+    elif env_api_key:
+        st.success("API key found from .env")
+    else:
+        st.warning("No .env API key found")
+
+    entered_api_key = st.text_input(
+        "Use a different API key",
+        value=st.session_state.session_api_key,
+        type="password",
+        placeholder="Paste API key for this session",
+    )
+    if entered_api_key != st.session_state.session_api_key:
+        st.session_state.session_api_key = entered_api_key.strip()
+
+    if st.session_state.session_api_key:
+        st.caption("A session-only API key override is active.")
+    elif env_api_key:
+        st.caption("Using the API key loaded from .env for this session.")
+    else:
+        st.caption("Enter an API key here to enable LLM features for this session.")
+
+    st.divider()
     st.header("Classifier settings")
     st.caption("LLM structured classifier")
     st.session_state.model_name = st.text_input("Model name", value=st.session_state.model_name)
+    _render_sidebar_reference_panels()
 
 chat_container = st.container(height=420, border=True)
 CHAT_CONTAINER = chat_container
@@ -612,6 +883,8 @@ if user_message:
 
     if _handle_matched_row_followup(user_message):
         pass
+    elif _handle_pending_incomplete_workflow_followup(user_message):
+        pass
     else:
         conversation_context = _build_conversation_context()
         try:
@@ -619,6 +892,7 @@ if user_message:
                 user_message=user_message,
                 conversation_context=conversation_context,
                 model_name=st.session_state.model_name,
+                api_key=get_active_api_key(),
             )
             st.session_state.last_route = route
         except Exception as exc:
@@ -660,6 +934,30 @@ if user_message:
 st.divider()
 st.header("Results")
 
+plot_col, diagram_col = st.columns(2)
+
+with plot_col:
+    st.subheader("Graphs")
+    if st.session_state.last_execution_result is None:
+        st.info("Graphs and sweep plots will appear here.")
+    else:
+        if not _render_plot(st.session_state.last_execution_result):
+            st.caption("This area is reserved for workflow plots when available.")
+
+with diagram_col:
+    st.subheader("Basic Batch Distillation Setup")
+    if STILL_DIAGRAM_PATH.exists():
+        st.image(str(STILL_DIAGRAM_PATH), width="stretch", caption="Still diagram reference")
+    else:
+        st.info("The still diagram image could not be found.")
+    with st.expander("Known Variables", expanded=True):
+        known_variable_rows = get_current_known_variables(st.session_state)
+        st.dataframe(
+            known_variable_rows,
+            width="stretch",
+            hide_index=True,
+        )
+
 if st.session_state.last_error:
     st.error("LLM classification failed.")
     with st.expander("Debug error details"):
@@ -693,13 +991,10 @@ else:
         for warning in result.warnings:
             st.info(warning)
 
-    with st.expander("Show results table and plot", expanded=True):
+    with st.expander("Show results table and outputs", expanded=True):
         if result.rows:
             st.subheader("Results table")
-            st.dataframe(result.rows, use_container_width=True)
-
-            st.subheader("Plot")
-            _render_plot(result)
+            st.dataframe(result.rows, width="stretch")
         else:
             st.info("This workflow did not produce table rows.")
 
@@ -745,6 +1040,30 @@ if st.session_state.pending_plan is not None:
             ),
         }
         st.json(pending_payload)
+
+if st.session_state.pending_incomplete_workflow is not None:
+    with st.expander("Debug: pending incomplete workflow", expanded=False):
+        payload = st.session_state.pending_incomplete_workflow
+        st.json(
+            {
+                "user_request": payload.get("user_request"),
+                "classification": (
+                    payload["classification"].model_dump()
+                    if payload.get("classification") is not None
+                    else None
+                ),
+                "plan": (
+                    payload["plan"].model_dump()
+                    if payload.get("plan") is not None
+                    else None
+                ),
+                "intent_analysis": (
+                    payload["intent_analysis"].model_dump()
+                    if payload.get("intent_analysis") is not None
+                    else None
+                ),
+            }
+        )
 
 if st.session_state.last_result_query_debug is not None:
     with st.expander("Debug: result follow-up routing", expanded=False):

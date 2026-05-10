@@ -11,8 +11,14 @@ It uses:
 
 - `feed_to_product_sweep`
 - `product_to_feed_sweep`
+- `solve_mole_balance`
+- `solve_rayleigh_batch_variables`
 
-Other goals may be classified and planned, but not all are executable yet.
+The app can also:
+- answer follow-up questions about the current result table when a deterministic lookup is supported
+- explain variables, workflows, plots, and results conversationally
+
+Calculations run through deterministic engineering functions after the goal is classified and the user confirms the plan.
 
 ## Variable Glossary
 

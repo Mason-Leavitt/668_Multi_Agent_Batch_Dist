@@ -30,6 +30,7 @@ def explain_execution_result(
     plan: WorkflowPlan,
     execution_result: WorkflowExecutionResult,
     model_name: str = "gpt-4o-mini",
+    api_key: str | None = None,
 ) -> str:
     """Generate a concise explanation of deterministic workflow results."""
 
@@ -37,7 +38,7 @@ def explain_execution_result(
     from langchain_openai import ChatOpenAI
 
     load_dotenv()
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
     background = _load_background_text()
 
     system_prompt = (
@@ -49,15 +50,6 @@ def explain_execution_result(
         "Explain units clearly. "
         "Explain that internal calculations use moles and mole fractions. "
         "Explain user-friendly columns such as liters and ABV when present. "
-        "Terminology rules: "
-        "D is total distillate/product amount in moles of the ethanol-water mixture, not moles of ethanol. "
-        "D_volume_L is total distillate/product volume in liters of the ethanol-water mixture, not liters of ethanol. "
-        "W0 is total feed/still-charge amount in moles of the ethanol-water mixture. "
-        "W0_volume_L is total feed/still-charge volume in liters of the ethanol-water mixture. "
-        "x0 is ethanol mole fraction in the feed and x0_abv_percent is estimated feed ABV percent. "
-        "xB is ethanol mole fraction in the remaining still bottoms and xB_abv_percent is estimated bottoms ABV percent. "
-        "xDavg is average ethanol mole fraction in the collected distillate mixture and xDavg_abv_percent is estimated ABV percent of that mixture. "
-        "Never describe D, D_volume_L, W0, or W0_volume_L as pure ethanol amounts by themselves. "
         "If the execution result includes both D and D_volume_L, explain that they represent the total product mixture amount in different units. "
         "For feed_to_product_sweep, explain that the rows are possible product mixture outcomes for different stopping compositions. "
         "For product_to_feed_sweep results, explain that the table shows possible starting feed conditions "

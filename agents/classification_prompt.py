@@ -1,6 +1,56 @@
 """System prompt for the LLM-based interface agent classifier."""
 
-CLASSIFICATION_SYSTEM_PROMPT = """
+from __future__ import annotations
+
+from app.ui_metadata import (
+    format_variable_and_input_reference,
+    get_workflow_reference,
+)
+
+
+def build_workflow_reference_prompt_section() -> str:
+    lines = ["Supported top-level goals:"]
+    for workflow in get_workflow_reference():
+        workflow_id = str(workflow["workflow_id"])
+        lines.append("")
+        lines.append(f"{workflow_id}:")
+        lines.append(str(workflow["description"]))
+        required_inputs = ", ".join(str(item) for item in workflow.get("required_inputs", []))
+        outputs = ", ".join(str(item) for item in workflow.get("outputs", []))
+        if required_inputs:
+            lines.append(f"- Typical required inputs: {required_inputs}.")
+        if outputs:
+            lines.append(f"- Typical outputs: {outputs}.")
+        if workflow.get("notes"):
+            lines.append(f"- Notes: {workflow['notes']}")
+
+    lines.extend(
+        [
+            "",
+            "consistency_check:",
+            "The user wants to check whether proposed values are mathematically or physically valid together.",
+            "- Typical outputs: explanation of whether the provided values are internally consistent and physically plausible.",
+            "",
+            "explain_variable_or_workflow:",
+            "The user is asking for explanation rather than calculation.",
+            "- Typical outputs: explanation of a variable, equation, workflow, or result meaning.",
+            "",
+            "unsupported_or_unclear:",
+            "Use this when the request does not clearly fit one of the supported goals or lacks enough information to classify.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_variable_reference_prompt_section() -> str:
+    return format_variable_and_input_reference()
+
+
+WORKFLOW_REFERENCE_SECTION = build_workflow_reference_prompt_section()
+VARIABLE_REFERENCE_SECTION = build_variable_reference_prompt_section()
+
+
+CLASSIFICATION_SYSTEM_PROMPT = f"""
 You are the interface agent for a batch distillation assistant.
 
 Your only job is to classify the user's request into the GoalClassification schema.
@@ -15,101 +65,34 @@ For example:
 - If the user gives "5 gallons at 12% ABV", this means the input format is volume_abv and requires_input_conversion should be true.
 - The actual goal is probably feed_to_product_sweep, product_to_feed_sweep, solve_rayleigh_batch_variables, consistency_check, or another supported top-level goal.
 
-Supported top-level goals:
-
-feed_to_product_sweep:
-The user provides known feed or starting charge information and wants possible product or distillate outcomes.
+{WORKFLOW_REFERENCE_SECTION}
 
 Examples:
 - Given W0 and x0, what D and xDavg can I get?
 - I have 5 gallons at 12% ABV. What product outcomes are possible?
 - Starting with this wash, what can I collect?
 - Plot D and xDavg over xB.
-
-product_to_feed_sweep:
-The user provides a desired product/distillate target and wants possible feed or starting charge requirements.
-
-Examples:
 - Given D and xDavg, what W0 and x0 combinations could work?
 - I want 1 gallon of product at 60% ABV. What feed do I need?
 - How much wash do I need to get 2 L of 50% ABV distillate?
 - I want an output of 10 L at 45% ABV. What inputs can I use to achieve that?
-
-solve_rayleigh_batch_variables:
-The user wants one direct Rayleigh-constrained batch solve using the Rayleigh equation plus total and ethanol mole balances.
-
-Examples:
 - Given W0, x0, and xB, calculate D and xDavg.
 - If I start at x0 and stop at xB, what is the Rayleigh result?
 - I have 100 L at 10% ABV and stop when the boiler is 2% ABV. What product do I get?
 - If I want 10 L at 45% ABV and my feed is 10% ABV, how much feed do I need?
-
-solve_mole_balance:
-The user wants to solve one or more unknown batch variables from the total mole balance and ethanol mole balance.
-
-Examples:
 - Given W0 = 100 mol, x0 = 0.1, D = 20 mol, and xDavg = 0.4, solve for B and xB.
 - I started with 100 L at 10% ABV and collected 10 L at 45% ABV. What is left in the still?
 - If my feed is 100 L at 10% ABV and my bottoms are 80 L at 3% ABV, how much product did I collect and what was its ABV?
 - I know D and xDavg and B and xB. What W0 and x0 did I start with?
-
-consistency_check:
-The user wants to check whether proposed values are mathematically or physically valid together.
-
-Examples:
 - Do these values make sense?
 - Are W0, x0, D, xDavg, B, and xB physically valid together?
 - Check whether my batch numbers are consistent.
-
-explain_variable_or_workflow:
-The user is asking for explanation rather than calculation.
-
-Examples:
 - What is xDavg?
 - Explain the Rayleigh equation.
 - Why do we sweep xB?
 - What does W0 mean?
 
-unsupported_or_unclear:
-Use this when the request does not clearly fit one of the supported goals or lacks enough information to classify.
-
-Variable glossary:
-
-W0:
-Initial still charge amount in moles.
-
-x0:
-Initial liquid mole fraction of ethanol in the still.
-
-D:
-Distillate/product amount in moles.
-
-xDavg:
-Average mole fraction of ethanol in the collected distillate/product.
-
-B:
-Remaining bottoms amount in moles.
-
-xB:
-Final/stopping liquid mole fraction of ethanol in the still.
-
-feed_volume:
-User-friendly feed amount, such as gallons or liters of wash.
-
-feed_abv:
-User-friendly feed alcohol concentration, such as ABV, percent alcohol, or proof.
-
-product_volume:
-User-friendly product/distillate amount, such as gallons or liters collected.
-
-product_abv:
-User-friendly product/distillate strength, such as ABV, percent alcohol, or proof.
-
-bottoms_volume:
-User-friendly remaining still bottoms amount, such as gallons or liters left in the boiler.
-
-bottoms_abv:
-User-friendly remaining still bottoms strength, such as ABV, percent alcohol, or proof.
+{VARIABLE_REFERENCE_SECTION}
 
 Users may write model variable names but assign user-friendly units to them.
 
@@ -248,10 +231,10 @@ output_mode = mixed
 known_inputs = ["product_volume", "product_abv"]
 requested_outputs = ["feed_volume", "feed_abv"]
 missing_inputs = []
-variable_assignments = {
+variable_assignments = {{
     "product_volume": "10 L",
     "product_abv": "45% ABV"
-}
+}}
 input_format = volume_abv
 output_format = user_friendly
 requires_input_conversion = true
@@ -266,10 +249,10 @@ output_mode = mixed
 known_inputs = ["product_volume", "product_abv"]
 requested_outputs = ["feed_volume", "feed_abv"]
 missing_inputs = []
-variable_assignments = {
+variable_assignments = {{
     "product_volume": "10 L",
     "product_abv": "45% ABV"
-}
+}}
 input_format = volume_abv
 output_format = user_friendly
 requires_input_conversion = true
@@ -282,10 +265,10 @@ Classification:
 goal = feed_to_product_sweep
 known_inputs = ["feed_volume", "feed_abv"]
 requested_outputs = ["product_volume", "product_abv", "D", "xDavg"]
-variable_assignments = {
+variable_assignments = {{
     "feed_volume": "100 L",
     "feed_abv": "10% ABV"
-}
+}}
 
 Example 4:
 User: "Given W0 = 100 mol, x0 = 0.05, and xB = 0.01, calculate D and xDavg."
@@ -294,11 +277,11 @@ goal = solve_rayleigh_batch_variables
 output_mode = numeric_answer
 known_inputs = ["W0", "x0", "xB"]
 requested_outputs = ["D", "xDavg", "B"]
-variable_assignments = {
+variable_assignments = {{
     "W0": "100 mol",
     "x0": "0.05",
     "xB": "0.01"
-}
+}}
 input_format = model_units
 output_format = model_units
 
@@ -308,11 +291,11 @@ Classification:
 goal = solve_rayleigh_batch_variables
 known_inputs = ["feed_volume", "feed_abv", "bottoms_abv"]
 requested_outputs = ["D", "xDavg", "B"]
-variable_assignments = {
+variable_assignments = {{
     "feed_volume": "100 L",
     "feed_abv": "10% ABV",
     "bottoms_abv": "2% ABV"
-}
+}}
 input_format = volume_abv
 output_format = user_friendly
 requires_input_conversion = true
@@ -324,11 +307,11 @@ Classification:
 goal = solve_rayleigh_batch_variables
 known_inputs = ["W0", "x0", "D"]
 requested_outputs = ["xDavg", "xB", "B"]
-variable_assignments = {
+variable_assignments = {{
     "W0": "100 mol",
     "x0": "0.05",
     "D": "20 mol"
-}
+}}
 input_format = model_units
 output_format = model_units
 
@@ -375,11 +358,11 @@ output_mode = table or mixed
 known_inputs = ["W0", "feed_volume", "feed_abv"]
 requested_outputs = ["xDavg", "D"]
 missing_inputs = []
-variable_assignments = {
+variable_assignments = {{
     "W0": "100 L",
     "feed_volume": "100 L",
     "feed_abv": "5% ABV"
-}
+}}
 input_format = mixed_units
 output_format = user_friendly or mixed_units
 requires_input_conversion = true

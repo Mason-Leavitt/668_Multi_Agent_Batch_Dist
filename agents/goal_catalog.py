@@ -1,14 +1,33 @@
 """Supported goals and related metadata for the interface agent prototype."""
 
-SUPPORTED_GOALS = [
-    "feed_to_product_sweep",
-    "product_to_feed_sweep",
-    "solve_rayleigh_batch_variables",
-    "solve_mole_balance",
-    "consistency_check",
-    "explain_variable_or_workflow",
-    "unsupported_or_unclear",
-]
+from __future__ import annotations
+
+from app.ui_metadata import get_workflow_reference
+
+# Executable workflow metadata is registry-backed. Conversational classifier-only
+# categories remain local here for compatibility with existing callers.
+_EXECUTABLE_WORKFLOW_DESCRIPTIONS = {
+    str(workflow["workflow_id"]): str(workflow["description"])
+    for workflow in get_workflow_reference()
+}
+
+_CONVERSATIONAL_GOAL_DESCRIPTIONS = {
+    "consistency_check": (
+        "The user wants to test whether a proposed set of values is "
+        "mathematically or physically consistent."
+    ),
+    "explain_variable_or_workflow": (
+        "The user is asking for an explanation of a variable, equation, or "
+        "workflow rather than a calculation."
+    ),
+    "unsupported_or_unclear": (
+        "The request does not clearly fit the supported first-prototype goals."
+    ),
+}
+
+SUPPORTED_GOALS = list(_EXECUTABLE_WORKFLOW_DESCRIPTIONS) + list(
+    _CONVERSATIONAL_GOAL_DESCRIPTIONS
+)
 
 SUPPORTED_OUTPUT_MODES = [
     "numeric_answer",
@@ -35,31 +54,6 @@ SUPPORTED_OUTPUT_FORMATS = [
 ]
 
 GOAL_DESCRIPTIONS = {
-    "feed_to_product_sweep": (
-        "The user provides feed information and wants possible distillate or "
-        "product outcomes."
-    ),
-    "product_to_feed_sweep": (
-        "The user provides a desired distillate target and wants possible "
-        "feed requirements."
-    ),
-    "solve_rayleigh_batch_variables": (
-        "Solve missing batch distillation variables using the Rayleigh "
-        "equation together with total and ethanol mole balances."
-    ),
-    "solve_mole_balance": (
-        "Solve one or more unknown batch variables from the total mole "
-        "balance and ethanol mole balance."
-    ),
-    "consistency_check": (
-        "The user wants to test whether a proposed set of values is "
-        "mathematically or physically consistent."
-    ),
-    "explain_variable_or_workflow": (
-        "The user is asking for an explanation of a variable, equation, or "
-        "workflow rather than a calculation."
-    ),
-    "unsupported_or_unclear": (
-        "The request does not clearly fit the supported first-prototype goals."
-    ),
+    **_EXECUTABLE_WORKFLOW_DESCRIPTIONS,
+    **_CONVERSATIONAL_GOAL_DESCRIPTIONS,
 }

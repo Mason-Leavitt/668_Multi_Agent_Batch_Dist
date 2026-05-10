@@ -24,7 +24,7 @@ from engineering.conversions import (
 )
 from scipy.optimize import brentq
 
-from .execution_schemas import WorkflowExecutionResult
+from .execution_schemas import ExecutionParameterValue, WorkflowExecutionResult
 from .schemas import GoalClassification, ScalarValue
 from .workflow_schemas import WorkflowPlan
 
@@ -33,9 +33,9 @@ DEFAULT_NUM_XB = 100
 DEFAULT_XB_MIN = 0.001
 DEFAULT_XB_BUFFER = 0.001
 DEFAULT_SIMPSON_N = 100
-DEFAULT_NUM_X0 = 100
-DEFAULT_PRODUCT_NUM_XB = 100
-DEFAULT_PRODUCT_TOLERANCE = 0.002
+DEFAULT_NUM_X0 = 250
+DEFAULT_PRODUCT_NUM_XB = 250
+DEFAULT_PRODUCT_TOLERANCE = 0.01
 DEFAULT_RAYLEIGH_UPPER_X = 0.89
 DEFAULT_ROOT_EPS = 1e-6
 
@@ -91,6 +91,21 @@ def _abv_percent_to_mol_frac(abv_percent: float) -> float:
     return float(converted["x_etoh"])
 
 
+def _parse_composition_value(value: ScalarValue, field_name: str) -> float:
+    if isinstance(value, str):
+        lowered = value.lower()
+        if "%" in lowered or "abv" in lowered or "proof" in lowered:
+            return _abv_percent_to_mol_frac(_parse_abv_to_percent(value, field_name))
+    return _parse_model_scalar(value, field_name)
+
+
+def _moles_from_volume_L_and_mol_frac(volume_L: float, x_etoh: float) -> float:
+    one_mole_volume_L = float(get_mixture_volume_L_from_moles(1.0, x_etoh))
+    if one_mole_volume_L <= 0:
+        raise ValueError("Could not determine a positive mixture volume basis for the supplied composition.")
+    return volume_L / one_mole_volume_L
+
+
 def _w0_is_volume_like(classification: GoalClassification) -> bool:
     return _has_volume_units(classification.variable_assignments.get("W0"))
 
@@ -110,17 +125,31 @@ def _collect_preliminary_normalized_inputs(
             normalized_inputs["feed_volume_L"] = _parse_volume_to_liters(assignments["W0"], "W0")
             normalized_inputs["feed_abv_fraction"] = _parse_abv_to_percent(assignments["feed_abv"], "feed_abv") / 100.0
             normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        elif "W0" in assignments and "x0" in assignments and _w0_is_volume_like(classification):
+            volume_l = _parse_volume_to_liters(assignments["W0"], "W0")
+            x0 = _parse_composition_value(assignments["x0"], "x0")
+            normalized_inputs["feed_volume_L"] = volume_l
+            normalized_inputs["W0"] = _moles_from_volume_L_and_mol_frac(volume_l, x0)
+            normalized_inputs["x0"] = x0
+            normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
         elif "feed_volume" in assignments and "feed_abv" in assignments:
             normalized_inputs["feed_volume_L"] = _parse_volume_to_liters(assignments["feed_volume"], "feed_volume")
             normalized_inputs["feed_abv_fraction"] = _parse_abv_to_percent(assignments["feed_abv"], "feed_abv") / 100.0
             normalized_inputs["input_source"] = "volume_abv"
         elif "W0" in assignments and "x0" in assignments and not _w0_is_volume_like(classification):
             normalized_inputs["W0"] = _parse_model_scalar(assignments["W0"], "W0")
-            normalized_inputs["x0"] = _parse_model_scalar(assignments["x0"], "x0")
+            normalized_inputs["x0"] = _parse_composition_value(assignments["x0"], "x0")
             normalized_inputs["input_source"] = "model_units"
         elif "D" in assignments and "xDavg" in assignments and _d_is_volume_like(classification):
             normalized_inputs["product_volume_L"] = _parse_volume_to_liters(assignments["D"], "D")
             normalized_inputs["product_abv_fraction"] = _parse_abv_to_percent(assignments["xDavg"], "xDavg") / 100.0
+            normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        elif "D" in assignments and "xDavg" in assignments and _d_is_volume_like(classification):
+            volume_l = _parse_volume_to_liters(assignments["D"], "D")
+            xDavg = _parse_composition_value(assignments["xDavg"], "xDavg")
+            normalized_inputs["product_volume_L"] = volume_l
+            normalized_inputs["D"] = _moles_from_volume_L_and_mol_frac(volume_l, xDavg)
+            normalized_inputs["xDavg"] = xDavg
             normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
         elif "product_volume" in assignments and "product_abv" in assignments:
             normalized_inputs["product_volume_L"] = _parse_volume_to_liters(assignments["product_volume"], "product_volume")
@@ -128,11 +157,18 @@ def _collect_preliminary_normalized_inputs(
             normalized_inputs["input_source"] = "volume_abv"
         elif "D" in assignments and "xDavg" in assignments and not _d_is_volume_like(classification):
             normalized_inputs["D"] = _parse_model_scalar(assignments["D"], "D")
-            normalized_inputs["xDavg"] = _parse_model_scalar(assignments["xDavg"], "xDavg")
+            normalized_inputs["xDavg"] = _parse_composition_value(assignments["xDavg"], "xDavg")
             normalized_inputs["input_source"] = "model_units"
         elif "B" in assignments and "bottoms_abv" in assignments and _has_volume_units(assignments["B"]):
             normalized_inputs["bottoms_volume_L"] = _parse_volume_to_liters(assignments["B"], "B")
             normalized_inputs["bottoms_abv_fraction"] = _parse_abv_to_percent(assignments["bottoms_abv"], "bottoms_abv") / 100.0
+            normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        elif "B" in assignments and "xB" in assignments and _has_volume_units(assignments["B"]):
+            volume_l = _parse_volume_to_liters(assignments["B"], "B")
+            xB = _parse_composition_value(assignments["xB"], "xB")
+            normalized_inputs["bottoms_volume_L"] = volume_l
+            normalized_inputs["B"] = _moles_from_volume_L_and_mol_frac(volume_l, xB)
+            normalized_inputs["xB"] = xB
             normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
         elif "bottoms_volume" in assignments and "bottoms_abv" in assignments:
             normalized_inputs["bottoms_volume_L"] = _parse_volume_to_liters(assignments["bottoms_volume"], "bottoms_volume")
@@ -140,7 +176,7 @@ def _collect_preliminary_normalized_inputs(
             normalized_inputs["input_source"] = "volume_abv"
         elif "B" in assignments and "xB" in assignments and not _has_volume_units(assignments["B"]):
             normalized_inputs["B"] = _parse_model_scalar(assignments["B"], "B")
-            normalized_inputs["xB"] = _parse_model_scalar(assignments["xB"], "xB")
+            normalized_inputs["xB"] = _parse_composition_value(assignments["xB"], "xB")
             normalized_inputs["input_source"] = "model_units"
     except Exception:
         return normalized_inputs
@@ -176,6 +212,18 @@ def _normalize_feed_inputs(
         )
         return converted["total_moles"], converted["x_etoh"], normalized_inputs, warnings
 
+    if "W0" in assignments and "x0" in assignments and _w0_is_volume_like(classification):
+        volume_l = _parse_volume_to_liters(assignments["W0"], "W0")
+        x0 = _parse_composition_value(assignments["x0"], "x0")
+        normalized_inputs["feed_volume_L"] = volume_l
+        normalized_inputs["W0"] = _moles_from_volume_L_and_mol_frac(volume_l, x0)
+        normalized_inputs["x0"] = x0
+        normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        warnings.append(
+            "W0 was interpreted as a user-friendly feed volume and normalized to internal W0 using the provided x0 composition."
+        )
+        return normalized_inputs["W0"], x0, normalized_inputs, warnings
+
     if "feed_volume" in assignments and "feed_abv" in assignments:
         volume_l = _parse_volume_to_liters(assignments["feed_volume"], "feed_volume")
         abv_percent = _parse_abv_to_percent(assignments["feed_abv"], "feed_abv")
@@ -196,14 +244,14 @@ def _normalize_feed_inputs(
 
     if "W0" in assignments and "x0" in assignments and not _w0_is_volume_like(classification):
         W0 = _parse_model_scalar(assignments["W0"], "W0")
-        x0 = _parse_model_scalar(assignments["x0"], "x0")
+        x0 = _parse_composition_value(assignments["x0"], "x0")
         normalized_inputs["W0"] = W0
         normalized_inputs["x0"] = x0
         normalized_inputs["input_source"] = "model_units"
         return (W0, x0, normalized_inputs, warnings)
 
     raise ValueError(
-        "Feed-to-product execution needs either W0 and x0 values, feed_volume and feed_abv values, or volume-like W0 plus feed_abv."
+        "Feed normalization needs either W0 and x0 values, feed_volume and feed_abv values, or a volume-like W0 plus either x0 or feed_abv."
     )
 
 
@@ -214,9 +262,9 @@ def _normalize_product_inputs(
     normalized_inputs: dict[str, ScalarValue] = {}
     assignments = classification.variable_assignments
 
-    if "D" in assignments and "xDavg" in assignments and _d_is_volume_like(classification):
+    if "D" in assignments and "product_abv" in assignments and _d_is_volume_like(classification):
         volume_l = _parse_volume_to_liters(assignments["D"], "D")
-        abv_percent = _parse_abv_to_percent(assignments["xDavg"], "xDavg")
+        abv_percent = _parse_abv_to_percent(assignments["product_abv"], "product_abv")
         normalized_inputs["product_volume_L"] = volume_l
         normalized_inputs["product_abv_fraction"] = abv_percent / 100.0
         normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
@@ -234,6 +282,22 @@ def _normalize_product_inputs(
             "D was interpreted as a user-friendly product volume and normalized to internal D and xDavg."
         )
         return converted["total_moles"], converted["x_etoh"], normalized_inputs, warnings
+
+    if "D" in assignments and "xDavg" in assignments and _d_is_volume_like(classification):
+        volume_l = _parse_volume_to_liters(assignments["D"], "D")
+        xDavg_value = _parse_composition_value(assignments["xDavg"], "xDavg")
+        normalized_inputs["product_volume_L"] = volume_l
+        normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        if isinstance(assignments["D"], str):
+            lowered = assignments["D"].lower()
+            if "gallon" in lowered or re.search(r"\bgal\b", lowered):
+                normalized_inputs["product_volume_gal"] = _extract_first_number(assignments["D"], "D")
+        normalized_inputs["D"] = _moles_from_volume_L_and_mol_frac(volume_l, xDavg_value)
+        normalized_inputs["xDavg"] = xDavg_value
+        warnings.append(
+            "D was interpreted as a user-friendly product volume and normalized to internal D using the provided xDavg composition."
+        )
+        return normalized_inputs["D"], xDavg_value, normalized_inputs, warnings
 
     if "product_volume" in assignments and "product_abv" in assignments:
         volume_l = _parse_volume_to_liters(assignments["product_volume"], "product_volume")
@@ -255,14 +319,14 @@ def _normalize_product_inputs(
 
     if "D" in assignments and "xDavg" in assignments and not _d_is_volume_like(classification):
         D_value = _parse_model_scalar(assignments["D"], "D")
-        xDavg_value = _parse_model_scalar(assignments["xDavg"], "xDavg")
+        xDavg_value = _parse_composition_value(assignments["xDavg"], "xDavg")
         normalized_inputs["D"] = D_value
         normalized_inputs["xDavg"] = xDavg_value
         normalized_inputs["input_source"] = "model_units"
         return D_value, xDavg_value, normalized_inputs, warnings
 
     raise ValueError(
-        "Product-to-feed execution needs either D and xDavg values, product_volume and product_abv values, or volume-like D plus xDavg as ABV."
+        "Product normalization needs either D and xDavg values, product_volume and product_abv values, or a volume-like D plus either xDavg or product_abv."
     )
 
 
@@ -290,6 +354,18 @@ def _normalize_bottoms_inputs(
         )
         return converted["total_moles"], converted["x_etoh"], normalized_inputs, warnings
 
+    if "B" in assignments and "xB" in assignments and _has_volume_units(assignments["B"]):
+        volume_l = _parse_volume_to_liters(assignments["B"], "B")
+        xB_value = _parse_composition_value(assignments["xB"], "xB")
+        normalized_inputs["bottoms_volume_L"] = volume_l
+        normalized_inputs["B"] = _moles_from_volume_L_and_mol_frac(volume_l, xB_value)
+        normalized_inputs["xB"] = xB_value
+        normalized_inputs["input_source"] = "mixed_units_normalized_to_model_units"
+        warnings.append(
+            "B was interpreted as a user-friendly bottoms volume and normalized to internal B using the provided xB composition."
+        )
+        return normalized_inputs["B"], xB_value, normalized_inputs, warnings
+
     if "bottoms_volume" in assignments and "bottoms_abv" in assignments:
         volume_l = _parse_volume_to_liters(assignments["bottoms_volume"], "bottoms_volume")
         abv_percent = _parse_abv_to_percent(assignments["bottoms_abv"], "bottoms_abv")
@@ -306,14 +382,14 @@ def _normalize_bottoms_inputs(
 
     if "B" in assignments and "xB" in assignments and not _has_volume_units(assignments["B"]):
         B_value = _parse_model_scalar(assignments["B"], "B")
-        xB_value = _parse_model_scalar(assignments["xB"], "xB")
+        xB_value = _parse_composition_value(assignments["xB"], "xB")
         normalized_inputs["B"] = B_value
         normalized_inputs["xB"] = xB_value
         normalized_inputs["input_source"] = "model_units"
         return B_value, xB_value, normalized_inputs, warnings
 
     raise ValueError(
-        "Mole-balance execution needs either B and xB values, bottoms_volume and bottoms_abv values, or volume-like B plus bottoms_abv."
+        "Bottoms normalization needs either B and xB values, bottoms_volume and bottoms_abv values, or a volume-like B plus either xB or bottoms_abv."
     )
 
 
@@ -412,7 +488,7 @@ def execute_feed_to_product_sweep(
     plan: WorkflowPlan,
 ) -> WorkflowExecutionResult:
     warnings: list[str] = []
-    execution_parameters: dict[str, ScalarValue] = {
+    execution_parameters: dict[str, ExecutionParameterValue] = {
         "sweep_variable": classification.sweep_variable or "xB",
         "num_xB": DEFAULT_NUM_XB,
         "xB_min": DEFAULT_XB_MIN,
@@ -507,7 +583,7 @@ def execute_product_to_feed_sweep(
     plan: WorkflowPlan,
 ) -> WorkflowExecutionResult:
     warnings: list[str] = []
-    execution_parameters: dict[str, ScalarValue] = {
+    execution_parameters: dict[str, ExecutionParameterValue] = {
         "workflow": "product_to_feed_sweep",
         "num_x0": DEFAULT_NUM_X0,
         "num_xB": DEFAULT_PRODUCT_NUM_XB,
@@ -653,7 +729,7 @@ def execute_solve_mole_balance(
     warnings: list[str] = [
         "This calculation uses only the overall mole balance and ethanol balance; it does not enforce the Rayleigh batch-distillation relationship."
     ]
-    execution_parameters: dict[str, ScalarValue] = {
+    execution_parameters: dict[str, ExecutionParameterValue] = {
         "workflow": "solve_mole_balance",
         "equations": [
             "W0 = D + B",
@@ -786,7 +862,7 @@ def execute_solve_rayleigh_batch_variables(
     warnings: list[str] = [
         "This result is constrained by the Rayleigh equation and the total/ethanol mole balances."
     ]
-    execution_parameters: dict[str, ScalarValue] = {
+    execution_parameters: dict[str, ExecutionParameterValue] = {
         "workflow": "solve_rayleigh_batch_variables",
         "n": DEFAULT_SIMPSON_N,
         "requested_outputs": list(classification.requested_outputs),
@@ -795,6 +871,7 @@ def execute_solve_rayleigh_batch_variables(
 
     try:
         values: dict[str, float] = {}
+        provided_xDavg: float | None = None
 
         try:
             W0, x0, feed_inputs, feed_warnings = _normalize_feed_inputs(classification)
@@ -835,7 +912,7 @@ def execute_solve_rayleigh_batch_variables(
                 normalized_inputs[key] = values[key]
         for key in ["x0", "xDavg", "xB"]:
             if key in assignments and key not in values:
-                values[key] = _parse_model_scalar(assignments[key], key)
+                values[key] = _parse_composition_value(assignments[key], key)
                 normalized_inputs[key] = values[key]
         if values and "input_source" not in normalized_inputs:
             normalized_inputs["input_source"] = "model_units"
@@ -844,6 +921,8 @@ def execute_solve_rayleigh_batch_variables(
 
         if {"W0", "x0", "xB"}.issubset(values):
             solve_case = "A"
+            if "xDavg" in values:
+                provided_xDavg = values["xDavg"]
             integral = composite_simpson_rule_rayleigh(values["x0"], values["xB"], n=DEFAULT_SIMPSON_N)
             B_over_W0 = math.exp(-integral)
             values["B"] = get_B_rayleigh(values["W0"], values["x0"], values["xB"], n=DEFAULT_SIMPSON_N)
@@ -851,6 +930,17 @@ def execute_solve_rayleigh_batch_variables(
             values["xDavg"] = get_xDavg_mole_balance_1(values["W0"], values["B"], values["D"], values["x0"], values["xB"])
             execution_parameters["rayleigh_integral"] = integral
             execution_parameters["B_over_W0"] = B_over_W0
+            execution_parameters["W_over_W0"] = B_over_W0
+            if provided_xDavg is not None:
+                xDavg_error = abs(provided_xDavg - values["xDavg"])
+                execution_parameters["provided_xDavg"] = provided_xDavg
+                execution_parameters["implied_xDavg"] = values["xDavg"]
+                execution_parameters["xDavg_error"] = xDavg_error
+                if xDavg_error > 1e-3:
+                    warnings.append(
+                        "Provided xDavg does not match the Rayleigh-implied average distillate composition. "
+                        f"The Rayleigh solution implies xDavg = {values['xDavg']:.6f}, while the provided value was {provided_xDavg:.6f}."
+                    )
         elif {"W0", "x0", "D"}.issubset(values):
             solve_case = "B"
             values["B"] = get_B_mole_balance(values["W0"], values["D"])
@@ -906,10 +996,16 @@ def execute_solve_rayleigh_batch_variables(
             execution_parameters["root_solver"] = "scipy.optimize.brentq"
             warnings.append("Root-finding was used to solve the unknown composition.")
         else:
+            known_inputs = sorted(values.keys())
             return WorkflowExecutionResult(
                 workflow_name=plan.workflow_name,
                 success=False,
-                message="This Rayleigh solve case is not implemented yet.",
+                message=(
+                    f"Rayleigh solve case not implemented for known inputs: {known_inputs}. "
+                    "Currently supported direct cases are W0 + x0 + xB -> B, D, implied xDavg; "
+                    "W0 + x0 + D -> B, xB, xDavg; D + xDavg + x0 -> W0, B, xB; "
+                    "and D + xDavg + xB -> W0, B, x0."
+                ),
                 warnings=warnings,
                 normalized_inputs=normalized_inputs,
                 execution_parameters=execution_parameters,
@@ -930,6 +1026,10 @@ def execute_solve_rayleigh_batch_variables(
         for key in ["W0", "x0", "D", "xDavg", "B", "xB"]
         if key in values
     }
+    if provided_xDavg is not None:
+        row["provided_xDavg"] = round(float(provided_xDavg), 6)
+        row["xDavg_implied"] = round(float(values["xDavg"]), 6)
+        row["xDavg_error"] = round(float(abs(provided_xDavg - values["xDavg"])), 6)
     _populate_user_friendly_balance_columns(row, warnings)
 
     columns = [
@@ -942,6 +1042,9 @@ def execute_solve_rayleigh_batch_variables(
             "D",
             "D_volume_L",
             "xDavg",
+            "xDavg_implied",
+            "provided_xDavg",
+            "xDavg_error",
             "xDavg_abv_percent",
             "B",
             "B_volume_L",

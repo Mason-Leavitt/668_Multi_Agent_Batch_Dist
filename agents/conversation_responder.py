@@ -31,6 +31,7 @@ def respond_to_general_message(
     last_plan: WorkflowPlan | None = None,
     last_execution_result: WorkflowExecutionResult | None = None,
     model_name: str = "gpt-4o-mini",
+    api_key: str | None = None,
 ) -> str:
     """Respond conversationally without treating the message as a new workflow request."""
 
@@ -38,7 +39,7 @@ def respond_to_general_message(
     from langchain_openai import ChatOpenAI
 
     load_dotenv()
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
     background = _load_background_text()
 
     system_prompt = (
@@ -47,24 +48,10 @@ def respond_to_general_message(
         "The deterministic engineering functions are the source of numerical truth. "
         "Do not perform new calculations or invent values. "
         "You can run deterministic engineering workflows once the goal and required inputs are clear. "
+        "If the user asks what the app can do, describe the currently supported workflows and explain that calculations run through deterministic engineering functions after planning and confirmation. "
         "This general conversation path is for corrections, conceptual questions, capability questions, interpretation questions, and non-actionable discussion. "
         "If the user asks for a new calculation or design task, briefly redirect them to describe the desired task clearly instead of trying to solve it here. "
-        "Do not tell users they must provide W0, x0, D, or xDavg when user-facing volume and ABV inputs are already sufficient for a supported sweep.\n\n"
-        "Terminology rules:\n"
-        "- D is total distillate/product amount in moles of the ethanol-water mixture.\n"
-        "- D is NOT moles of ethanol.\n"
-        "- D_volume_L is total distillate/product volume in liters of the ethanol-water mixture.\n"
-        "- D_volume_L is NOT liters of ethanol.\n"
-        "- W0 is total feed/still-charge amount in moles of the ethanol-water mixture.\n"
-        "- W0_volume_L is total feed/still-charge volume in liters of the ethanol-water mixture.\n"
-        "- x0 is ethanol mole fraction in the feed.\n"
-        "- x0_abv_percent is estimated feed ABV percent.\n"
-        "- xB is ethanol mole fraction in the remaining still bottoms at the stopping point.\n"
-        "- xB_abv_percent is estimated bottoms/still ABV percent at the stopping point.\n"
-        "- xDavg is average ethanol mole fraction in the collected distillate mixture.\n"
-        "- xDavg_abv_percent is estimated ABV percent of the collected distillate mixture.\n"
-        "- Never call D, D_volume_L, W0, or W0_volume_L pure ethanol amounts.\n"
-        "- If referring to ethanol content, say ethanol fraction or ethanol concentration unless an exact ethanol-only amount is explicitly provided."
+        "Do not tell users they must provide W0, x0, D, or xDavg when user-facing volume and ABV inputs are already sufficient for a supported sweep."
     )
 
     compact_result = None

@@ -5,15 +5,40 @@ from __future__ import annotations
 import json
 import re
 
+from app.ui_metadata import get_workflow_reference
+
 from .router_schemas import ConversationRoute
 
 
-ROUTER_SYSTEM_PROMPT = """
+def build_router_workflow_summary_section() -> str:
+    lines = ["Implemented executable workflows:"]
+    for workflow in get_workflow_reference():
+        workflow_id = str(workflow["workflow_id"])
+        display_name = str(workflow["display_name"])
+        description = str(workflow["description"])
+        required_inputs = ", ".join(str(item) for item in workflow.get("required_inputs", []))
+        outputs = ", ".join(str(item) for item in workflow.get("outputs", []))
+        lines.append("")
+        lines.append(f"{workflow_id} ({display_name}):")
+        lines.append(description)
+        if required_inputs:
+            lines.append(f"- Typical required inputs: {required_inputs}.")
+        if outputs:
+            lines.append(f"- Typical outputs: {outputs}.")
+    return "\n".join(lines)
+
+
+WORKFLOW_SUMMARY_SECTION = build_router_workflow_summary_section()
+
+
+ROUTER_SYSTEM_PROMPT = f"""
 You are the semantic conversation router for a batch distillation assistant.
 
 Your only job is to route the user's conversational message. Do not perform
 calculations. Do not invent numeric results. Do not replace the separate
 GoalClassification step.
+
+{WORKFLOW_SUMMARY_SECTION}
 
 Route meanings:
 
@@ -266,6 +291,7 @@ def route_conversation_message(
     user_message: str,
     conversation_context: dict,
     model_name: str = "gpt-4o-mini",
+    api_key: str | None = None,
 ) -> ConversationRoute:
     """Route a conversational message semantically with structured output."""
 
@@ -273,7 +299,7 @@ def route_conversation_message(
     from langchain_openai import ChatOpenAI
 
     load_dotenv()
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
     structured_llm = llm.with_structured_output(
         ConversationRoute,
         method="function_calling",

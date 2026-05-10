@@ -4,6 +4,16 @@ from pydantic import BaseModel, Field
 
 from .schemas import ScalarValue
 
+ExecutionParameterValue = (
+    ScalarValue
+    | list[str]
+    | list[int]
+    | list[float]
+    | list[bool]
+    | list[ScalarValue]
+    | dict[str, ScalarValue]
+)
+
 
 class WorkflowExecutionResult(BaseModel):
     """Structured output from deterministic workflow execution.
@@ -21,4 +31,4 @@ class WorkflowExecutionResult(BaseModel):
 
     warnings: list[str] = Field(default_factory=list)
     normalized_inputs: dict[str, ScalarValue] = Field(default_factory=dict)
-    execution_parameters: dict[str, ScalarValue] = Field(default_factory=dict)
+    execution_parameters: dict[str, ExecutionParameterValue] = Field(default_factory=dict)

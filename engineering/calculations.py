@@ -1,6 +1,14 @@
+"""Deterministic engineering tools for Rayleigh, balance, sweep, and plotting math.
+
+This module contains numerical/distillation calculations and plotting helpers.
+It is a tool layer used by the app and agent-facing orchestration code, not an
+agent or language-reasoning module.
+"""
+
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+from collections import defaultdict
 
 from engineering.y_lookup_from_x import get_y
 import engineering.conversions as conv
@@ -339,15 +347,80 @@ def get_xDavg_rayleigh(x0: float, xB: float, n: int = 100):
 
     return xDavg
 
+# def find_W0_x0_combinations_from_xDavg_D(
+#     D_target: float,
+#     xDavg_target: float,
+#     x0_min: float = 0.001,
+#     x0_max: float = 0.89,
+#     num_x0: int = 200,
+#     num_xB: int = 200,
+#     tolerance: float = 0.01,
+#     n: int = 100,
+# ):
+#     """
+#     Find possible W0 and x0 combinations that could produce a target
+#     distillate amount D_target and average distillate composition xDavg_target.
+
+#     Uses existing Rayleigh/VLE functions:
+#         composite_simpson_rule_rayleigh(x0, xB, n)
+#     """
+
+#     results = []
+
+#     x0_values = np.linspace(x0_min, x0_max, num_x0)
+
+#     for x0 in x0_values:
+
+#         # xB must be less than x0
+#         xB_values = np.linspace(0.001, x0 - 0.001, num_xB)
+
+#         for xB in xB_values:
+
+#             if xB <= 0 or xB >= x0:
+#                 continue
+
+#             try:
+#                 integral = composite_simpson_rule_rayleigh(x0, xB, n=n)
+
+#                 B_over_W0 = math.exp(-integral)
+
+#                 # avoid divide-by-zero or tiny D cases
+#                 if B_over_W0 >= 1.0:
+#                     continue
+
+#                 xDavg = get_xDavg_rayleigh(x0, xB)
+
+#                 if abs(xDavg - xDavg_target) <= tolerance:
+#                     W0 = D_target / (1.0 - B_over_W0)
+#                     B = W0 * B_over_W0
+#                     D = W0 - B
+
+#                     results.append({
+#                         "W0": W0,
+#                         "x0": x0,
+#                         "B": B,
+#                         "xB": xB,
+#                         "D": D,
+#                         "xDavg": xDavg,
+#                         "error": xDavg - xDavg_target,
+#                         "rayleigh_integral": integral,
+#                     })
+
+#             except ValueError:
+#                 continue
+
+#     return results
+
 def find_W0_x0_combinations_from_xDavg_D(
     D_target: float,
     xDavg_target: float,
     x0_min: float = 0.001,
     x0_max: float = 0.89,
-    num_x0: int = 200,
-    num_xB: int = 200,
+    num_x0: int = 250,
+    num_xB: int = 250,
     tolerance: float = 0.01,
     n: int = 100,
+    select_middle_duplicate_x: bool = True,
 ):
     """
     Find possible W0 and x0 combinations that could produce a target
@@ -355,6 +428,10 @@ def find_W0_x0_combinations_from_xDavg_D(
 
     Uses existing Rayleigh/VLE functions:
         composite_simpson_rule_rayleigh(x0, xB, n)
+
+    If select_middle_duplicate_x=True, then for each x0 value with multiple
+    possible W0 values, keep the row whose W0 is closest to the median W0
+    for that x0.
     """
 
     results = []
@@ -362,6 +439,9 @@ def find_W0_x0_combinations_from_xDavg_D(
     x0_values = np.linspace(x0_min, x0_max, num_x0)
 
     for x0 in x0_values:
+
+        if x0 <= 0.001:
+            continue
 
         # xB must be less than x0
         xB_values = np.linspace(0.001, x0 - 0.001, num_xB)
@@ -401,7 +481,66 @@ def find_W0_x0_combinations_from_xDavg_D(
             except ValueError:
                 continue
 
+    if select_middle_duplicate_x:
+        results = select_middle_y_for_each_x(
+            results,
+            x_key="x0",
+            y_key="W0",
+        )
+
     return results
+
+def select_middle_y_for_each_x(
+    results: list[dict],
+    x_key: str,
+    y_key: str,
+) -> list[dict]:
+    """
+    For each unique x value, keep one row.
+
+    If multiple rows share the same x value, choose the row whose y value
+    is closest to the median y value for that x group.
+
+    Example:
+        x0 = 0.20 has W0 values [50, 60, 100]
+        median W0 = 60
+        keep the row where W0 = 60
+
+        x0 = 0.20 has W0 values [50, 100]
+        median W0 = 75
+        both are equally far, so this keeps the lower-index/first closest row.
+    """
+
+    grouped = defaultdict(list)
+
+    for row in results:
+        grouped[row[x_key]].append(row)
+
+    selected_results = []
+
+    for x_value, rows in grouped.items():
+
+        if len(rows) == 1:
+            selected_results.append(rows[0])
+            continue
+
+        y_values = [row[y_key] for row in rows]
+        middle_y = float(np.median(y_values))
+
+        selected_row = min(
+            rows,
+            key=lambda row: abs(row[y_key] - middle_y),
+        )
+
+        selected_row = selected_row.copy()
+        selected_row["middle_selection_y"] = middle_y
+        selected_row["num_candidate_points"] = len(rows)
+
+        selected_results.append(selected_row)
+
+    selected_results.sort(key=lambda row: row[x_key])
+
+    return selected_results
 
 def create_plot_W0_vs_x0_combinations(
     results: list[dict],
@@ -848,8 +987,8 @@ def create_plot_D_vs_xDavg_in_L_ABV(
 
 if __name__ == "__main__":
 
-    D = 20
-    xDavg = 0.2
+    D = 1003.7
+    xDavg = 0.192048
 
     combo_results_W0_x0 = find_W0_x0_combinations_from_xDavg_D(D, xDavg)
     create_plot_W0_vs_x0_combinations(combo_results_W0_x0, D, xDavg)

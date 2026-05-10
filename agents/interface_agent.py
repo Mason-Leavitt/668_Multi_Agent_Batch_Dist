@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 import re
 
+from app.ui_metadata import (
+    get_core_batch_variable_keys,
+    get_user_facing_batch_input_keys,
+)
+
+from .intent_analysis import analyze_batch_capabilities
 from .schemas import GoalClassification, OutputFormat, OutputMode
 
 
@@ -45,20 +51,10 @@ VARIABLE_ALIASES = {
     "bottoms_abv": ["bottoms abv", "remaining abv", "boiler abv", "bottoms strength"],
 }
 
-DISPLAY_VARIABLE_ORDER = [
-    "W0",
-    "x0",
-    "D",
-    "xDavg",
-    "B",
-    "xB",
-    "feed_volume",
-    "feed_abv",
-    "product_volume",
-    "product_abv",
-    "bottoms_volume",
-    "bottoms_abv",
-]
+# Keep the core batch-variable order aligned with the central registry.
+DISPLAY_VARIABLE_ORDER = (
+    get_core_batch_variable_keys() + get_user_facing_batch_input_keys()
+)
 
 VOLUME_TERMS = [
     "gallon",
@@ -250,15 +246,34 @@ def _contains_abv_value(text: str) -> bool:
 
 
 def _extract_named_value(raw_text: str, variable: str) -> str | None:
-    patterns = {
-        "W0": r"\bW0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
-        "x0": r"\bx0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
-        "D": r"(?<!x)\bD\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
-        "xDavg": r"\bxDavg\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
-        "B": r"(?<!x)\bB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
-        "xB": r"\bxB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+    volume_like = {
+        "W0": r"\bW0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?\s*(?:gallons?|gal|liters?|litres?|liter|litre|l|ml)?)",
+        "D": r"(?<!x)\bD\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?\s*(?:gallons?|gal|liters?|litres?|liter|litre|l|ml)?)",
+        "B": r"(?<!x)\bB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?\s*(?:gallons?|gal|liters?|litres?|liter|litre|l|ml)?)",
     }
-    match = re.search(patterns[variable], raw_text, flags=re.IGNORECASE)
+    composition_like = {
+        "x0": r"\bx0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?(?:\s*(?:%?\s*abv|abv|proof|mole fraction))?)",
+        "xDavg": r"\bxDavg\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?(?:\s*(?:%?\s*abv|abv|proof|mole fraction))?)",
+        "xB": r"\bxB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?(?:\s*(?:%?\s*abv|abv|proof|mole fraction))?)",
+    }
+    if variable in volume_like:
+        match = re.search(volume_like[variable], raw_text, flags=re.IGNORECASE)
+        return re.sub(r"\s+", " ", match.group(1).strip()) if match else None
+    if variable in composition_like:
+        match = re.search(composition_like[variable], raw_text, flags=re.IGNORECASE)
+        return re.sub(r"\s+", " ", match.group(1).strip()) if match else None
+    match = re.search(
+        {
+            "W0": r"\bW0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+            "x0": r"\bx0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+            "D": r"(?<!x)\bD\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+            "xDavg": r"\bxDavg\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+            "B": r"(?<!x)\bB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+            "xB": r"\bxB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        }[variable],
+        raw_text,
+        flags=re.IGNORECASE,
+    )
     return match.group(1) if match else None
 
 
@@ -369,7 +384,13 @@ def _detect_sweep_variable(text: str) -> str | None:
     return None
 
 
-def _determine_missing_inputs(goal: str, known_inputs: list[str], sweep_variable: str | None) -> list[str]:
+def _determine_missing_inputs(
+    goal: str,
+    known_inputs: list[str],
+    sweep_variable: str | None,
+    variable_assignments: dict[str, object] | None = None,
+    requested_outputs: list[str] | None = None,
+) -> list[str]:
     required_by_goal = {
         "feed_to_product_sweep": ["W0", "x0"],
         "product_to_feed_sweep": ["D", "xDavg"],
@@ -381,25 +402,17 @@ def _determine_missing_inputs(goal: str, known_inputs: list[str], sweep_variable
     }
 
     required = list(required_by_goal.get(goal, []))
-    if goal == "solve_rayleigh_batch_variables":
-        known_set = set(known_inputs)
-        supported_cases = [
-            {"W0", "x0", "xB"},
-            {"W0", "x0", "D"},
-            {"D", "xDavg", "x0"},
-            {"D", "xDavg", "xB"},
-            {"feed_volume", "feed_abv", "bottoms_abv"},
-            {"product_volume", "product_abv", "feed_abv"},
-            {"product_volume", "product_abv", "bottoms_abv"},
-        ]
-        if any(case.issubset(known_set) for case in supported_cases):
+    if goal in {"solve_rayleigh_batch_variables", "solve_mole_balance"} and variable_assignments is not None:
+        capability = analyze_batch_capabilities(
+            known_quantities=variable_assignments,
+            requested_outputs=requested_outputs or [],
+            candidate_goals=[goal],
+        )
+        if capability.can_calculate_now:
             return []
-        missing_by_case = [
-            [name for name in case if name not in known_set]
-            for case in supported_cases
-        ]
-        missing_by_case.sort(key=lambda items: (len(items), items))
-        return missing_by_case[0] if missing_by_case else []
+        if capability.blocking_missing_values:
+            return list(capability.blocking_missing_values)
+        # Legacy direct-solve fallback remains below for non-capability cases.
     if goal == "feed_to_product_sweep" and {"feed_volume", "feed_abv"}.issubset(set(known_inputs)):
         required = ["feed_volume", "feed_abv"]
     if goal == "product_to_feed_sweep" and {"product_volume", "product_abv"}.issubset(set(known_inputs)):
@@ -476,6 +489,7 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
     output_format = _detect_output_format(normalized, input_format)
     output_mode = _detect_output_mode(normalized)
     sweep_variable = _detect_sweep_variable(normalized)
+    variable_assignments = _extract_variable_assignments(user_message, normalized, "unsupported_or_unclear")
 
     goal = "unsupported_or_unclear"
     confidence = 0.2
@@ -531,7 +545,8 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         elif output_format in {"volume_abv", "mixed_units"}:
             requires_output_conversion = True
 
-    missing_inputs = _determine_missing_inputs(goal, known_inputs, sweep_variable)
+    # Quantity extraction stays here because it is a low-risk lexical helper.
+    # Direct-solve missing-value reasoning now prefers agents.intent_analysis.
     known_inputs, requested_outputs, output_format = _postprocess_for_goal(
         goal=goal,
         text=normalized,
@@ -540,7 +555,13 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         input_format=input_format,
         output_format=output_format,
     )
-    missing_inputs = _determine_missing_inputs(goal, known_inputs, sweep_variable)
+    missing_inputs = _determine_missing_inputs(
+        goal,
+        known_inputs,
+        sweep_variable,
+        variable_assignments=variable_assignments,
+        requested_outputs=requested_outputs,
+    )
     reasoning_summary, user_facing_summary = _build_summary(
         goal=goal,
         output_mode=output_mode,
@@ -549,7 +570,6 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         known_inputs=known_inputs,
         requested_outputs=requested_outputs,
     )
-    variable_assignments = _extract_variable_assignments(user_message, normalized, goal)
 
     if goal == "unsupported_or_unclear":
         user_facing_summary = (
@@ -610,6 +630,7 @@ def classify_goal_llm(
     user_message: str,
     model_name: str = "gpt-4o-mini",
     classification_hint: str | None = None,
+    api_key: str | None = None,
 ) -> GoalClassification:
     """Classify a user request with an LLM using structured output."""
 
@@ -619,7 +640,7 @@ def classify_goal_llm(
     from .classification_prompt import CLASSIFICATION_SYSTEM_PROMPT
 
     load_dotenv()
-    llm = ChatOpenAI(model=model_name, temperature=0)
+    llm = ChatOpenAI(model=model_name, temperature=0, api_key=api_key)
     feature_hints = analyze_message_features(user_message)
     structured_llm = llm.with_structured_output(
         GoalClassification,
@@ -655,6 +676,7 @@ def classify_goal(
     user_message: str,
     model_name: str = "gpt-4o-mini",
     classification_hint: str | None = None,
+    api_key: str | None = None,
 ) -> GoalClassification:
     """Classify a user request with the LLM structured classifier."""
 
@@ -662,4 +684,5 @@ def classify_goal(
         user_message,
         model_name=model_name,
         classification_hint=classification_hint,
+        api_key=api_key,
     )

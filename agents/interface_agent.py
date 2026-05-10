@@ -1,7 +1,8 @@
-"""Primary and fallback classification paths for the interface agent prototype."""
+"""LLM-first classification and optional hint extraction for the interface agent prototype."""
 
 from __future__ import annotations
 
+import json
 import re
 
 from .schemas import GoalClassification, OutputFormat, OutputMode
@@ -549,6 +550,37 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
     )
 
 
+def analyze_message_features(user_message: str) -> dict[str, object]:
+    """Return lightweight heuristic hints for the LLM classifier.
+
+    These hints are optional context only. They must not be treated as the
+    final classification result.
+    """
+
+    normalized = _normalize_text(user_message)
+    known_inputs = _detect_known_inputs(normalized)
+    requested_outputs = _detect_requested_outputs(normalized)
+    input_format = _detect_input_format(normalized)
+    output_format = _detect_output_format(normalized, input_format)
+    output_mode = _detect_output_mode(normalized)
+    sweep_variable = _detect_sweep_variable(normalized)
+    variable_assignments = _extract_variable_assignments(user_message, normalized, "unsupported_or_unclear")
+
+    return {
+        "known_inputs_hint": known_inputs,
+        "requested_outputs_hint": requested_outputs,
+        "input_format_hint": input_format,
+        "output_format_hint": output_format,
+        "output_mode_hint": output_mode,
+        "sweep_variable_hint": sweep_variable,
+        "variable_assignments_hint": variable_assignments,
+        "note": (
+            "These are lightweight heuristic hints only. They may be incomplete "
+            "or wrong and must not override the full user request."
+        ),
+    }
+
+
 def classify_goal_llm(user_message: str, model_name: str = "gpt-4o-mini") -> GoalClassification:
     """Classify a user request with an LLM using structured output."""
 
@@ -559,36 +591,30 @@ def classify_goal_llm(user_message: str, model_name: str = "gpt-4o-mini") -> Goa
 
     load_dotenv()
     llm = ChatOpenAI(model=model_name, temperature=0)
-    structured_llm = llm.with_structured_output(GoalClassification)
+    feature_hints = analyze_message_features(user_message)
+    structured_llm = llm.with_structured_output(
+        GoalClassification,
+        method="function_calling",
+        include_raw=False,
+    )
     result = structured_llm.invoke(
         [
             ("system", CLASSIFICATION_SYSTEM_PROMPT),
-            ("human", user_message),
+            (
+                "human",
+                "User request:\n"
+                f"{user_message}\n\n"
+                "Lightweight detected hints, for context only:\n"
+                f"{json.dumps(feature_hints, indent=2)}\n\n"
+                "Important: these hints may be incomplete or wrong. "
+                "Make the final classification from the full request and schema rules.",
+            ),
         ]
     )
     return result
 
 
-def classify_goal(
-    user_message: str,
-    use_llm: bool = True,
-    model_name: str = "gpt-4o-mini",
-) -> GoalClassification:
-    """Classify a user request with the primary LLM path and deterministic fallback."""
+def classify_goal(user_message: str, model_name: str = "gpt-4o-mini") -> GoalClassification:
+    """Classify a user request with the LLM structured classifier."""
 
-    if use_llm:
-        try:
-            return classify_goal_llm(user_message, model_name=model_name)
-        except Exception as exc:
-            fallback = classify_goal_deterministic(user_message)
-            fallback.reasoning_summary = (
-                "Fallback used after LLM error: "
-                f"{exc}. Deterministic baseline classification returned. "
-                f"{fallback.reasoning_summary}"
-            )
-            fallback.user_facing_summary = (
-                "The LLM classifier was unavailable, so the deterministic fallback was used."
-            )
-            return fallback
-
-    return classify_goal_deterministic(user_message)
+    return classify_goal_llm(user_message, model_name=model_name)

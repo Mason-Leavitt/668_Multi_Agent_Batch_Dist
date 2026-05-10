@@ -101,6 +101,24 @@ User-friendly product/distillate amount, such as gallons or liters collected.
 product_abv:
 User-friendly product/distillate strength, such as ABV, percent alcohol, or proof.
 
+Users may write model variable names but assign user-friendly units to them.
+
+Example:
+"If W0 = 100 L at 5% ABV ethanol, what combinations of xDavg and D could I get?"
+
+Interpretation:
+- The user is using W0 to refer to the starting feed amount, but the value is a volume, not moles.
+- "100 L" should be captured as feed_volume.
+- "5% ABV" should be captured as feed_abv.
+- This implies x0 is not truly missing; the feed composition is provided in user-friendly ABV form and requires conversion to internal x0.
+- The goal is feed_to_product_sweep.
+- known_inputs should include feed_volume and feed_abv. It may also include W0 if the user explicitly wrote W0, but do not mark x0 as missing when feed_abv is present.
+- requested_outputs should include xDavg and D.
+- input_format should be mixed_units or volume_abv.
+- requires_input_conversion should be true.
+- requires_output_conversion should be true if the user likely expects user-friendly results.
+- output_mode should be table or mixed when the user asks for "combinations".
+
 Input format rules:
 
 model_units:
@@ -232,6 +250,26 @@ Classification:
 goal = consistency_check
 output_mode = mixed
 
+Example 7:
+User: "If W0 = 100 L at 5% ABV ethanol, what are some combinations of xDavg and D that I could get?"
+Classification:
+goal = feed_to_product_sweep
+output_mode = table or mixed
+known_inputs = ["W0", "feed_volume", "feed_abv"]
+requested_outputs = ["xDavg", "D"]
+missing_inputs = []
+variable_assignments = {
+    "W0": "100 L",
+    "feed_volume": "100 L",
+    "feed_abv": "5% ABV"
+}
+input_format = mixed_units
+output_format = user_friendly or mixed_units
+requires_input_conversion = true
+requires_output_conversion = true
+sweep_variable = "xB" if combinations imply varying stopping composition, otherwise null
+confidence should be high
+
 Always populate every required field in GoalClassification:
 - goal
 - output_mode
@@ -252,7 +290,13 @@ Use concise reasoning_summary and user_facing_summary values.
 Set confidence between 0.0 and 1.0.
 Use an empty list, empty dict, or null where appropriate instead of inventing values.
 
+If the user explicitly names variables like D, xDavg, W0, x0, B, or xB in their request, include those variables in requested_outputs or known_inputs according to context.
+
+For the phrase "what combinations of xDavg and D could I get", requested_outputs should include both xDavg and D.
+Do not omit D.
+
 When possible, populate variable_assignments with explicit values copied from the user request, such as W0=100, x0=0.08, 5 gallons, or 60% ABV.
+variable_assignments values may be strings or simple numeric values when appropriate.
 
 The agent should return only the structured GoalClassification object.
 """.strip()

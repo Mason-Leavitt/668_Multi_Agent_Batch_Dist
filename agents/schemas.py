@@ -1,4 +1,4 @@
-"""Typed schemas for the deterministic interface agent prototype."""
+"""Typed schemas for the interface agent prototype."""
 
 from typing import Literal
 
@@ -39,6 +39,8 @@ OutputFormat = Literal[
     "unknown",
 ]
 
+ScalarValue = str | int | float | bool | None
+
 
 class GoalClassification(BaseModel):
     """Interface-agent interpretation of a user request.
@@ -54,7 +56,7 @@ class GoalClassification(BaseModel):
     known_inputs: list[str] = Field(default_factory=list)
     requested_outputs: list[str] = Field(default_factory=list)
     missing_inputs: list[str] = Field(default_factory=list)
-    variable_assignments: dict[str, str] = Field(default_factory=dict)
+    variable_assignments: dict[str, ScalarValue] = Field(default_factory=dict)
 
     input_format: InputFormat = "unknown"
     output_format: OutputFormat = "unknown"

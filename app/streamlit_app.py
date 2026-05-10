@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
     
-from agents.interface_agent import classify_goal
+from agents.interface_agent import analyze_message_features, classify_goal
 
 
 st.set_page_config(page_title="Batch Distillation Interface Agent Prototype", layout="wide")
@@ -23,41 +23,36 @@ st.write(
 
 with st.sidebar:
     st.header("Classifier settings")
-    classifier_mode = st.radio(
-        "Classification mode",
-        options=["LLM classifier", "Deterministic fallback"],
-        index=0,
-    )
+    st.caption("LLM structured classifier")
     model_name = st.text_input("Model name", value="gpt-4o-mini")
+    show_hints = st.checkbox("Show lightweight detected hints", value=False)
     st.divider()
     st.header("Live assessment")
 
 if "submitted_request" not in st.session_state:
     st.session_state.submitted_request = ""
-if "last_warning" not in st.session_state:
-    st.session_state.last_warning = None
+if "last_error" not in st.session_state:
+    st.session_state.last_error = None
 
 st.write("Enter a request below and press Enter to submit it.")
 
 submitted_request = st.chat_input("Describe the batch distillation question you want classified...")
 if submitted_request:
     st.session_state.submitted_request = submitted_request
-    st.session_state.last_warning = None
+    st.session_state.last_error = None
 
 user_request = st.session_state.submitted_request
 classification = None
+feature_hints = analyze_message_features(user_request) if user_request.strip() else None
 
 if user_request.strip():
-    use_llm = classifier_mode == "LLM classifier"
-    classification = classify_goal(
-        user_request,
-        use_llm=use_llm,
-        model_name=model_name.strip() or "gpt-4o-mini",
-    )
-    if use_llm and classification.reasoning_summary.startswith("Fallback used after LLM error:"):
-        st.session_state.last_warning = (
-            "LLM classification failed, so the deterministic fallback was used instead."
+    try:
+        classification = classify_goal(
+            user_request,
+            model_name=model_name.strip() or "gpt-4o-mini",
         )
+    except Exception as exc:
+        st.session_state.last_error = str(exc)
 
 with st.sidebar:
     st.subheader("Current goal")
@@ -73,12 +68,22 @@ with st.sidebar:
     else:
         st.json(classification.variable_assignments)
 
-if classification is None:
-    st.info("Enter a request to see the live classification.")
-else:
-    if st.session_state.last_warning:
-        st.warning(st.session_state.last_warning)
+    if show_hints:
+        st.subheader("Detected hints")
+        if feature_hints is None:
+            st.info("No hints detected yet.")
+        else:
+            st.json(feature_hints)
 
+if classification is None and not st.session_state.last_error:
+    st.info("Enter a request to see the live classification.")
+elif st.session_state.last_error:
+    st.error(
+        "LLM classification failed. No deterministic fallback was used because fallback classifications may be misleading."
+    )
+    with st.expander("Debug error details"):
+        st.code(st.session_state.last_error)
+else:
     with st.chat_message("user"):
         st.write(user_request)
 

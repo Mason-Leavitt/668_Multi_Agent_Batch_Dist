@@ -44,6 +44,48 @@ def _assigned_keys(classification: GoalClassification) -> list[str]:
     ]
 
 
+def _normalized_balance_knowns(classification: GoalClassification) -> list[str]:
+    knowns: list[str] = []
+
+    for key in ["W0", "x0", "D", "xDavg", "B", "xB"]:
+        if _has_value(classification, key):
+            knowns.append(key)
+
+    if _has_value(classification, "feed_volume") and _has_value(classification, "feed_abv"):
+        knowns.extend(["W0", "x0"])
+    if _has_value(classification, "product_volume") and _has_value(classification, "product_abv"):
+        knowns.extend(["D", "xDavg"])
+    if _has_value(classification, "bottoms_volume") and _has_value(classification, "bottoms_abv"):
+        knowns.extend(["B", "xB"])
+
+    return _dedupe(knowns)
+
+
+def _normalized_rayleigh_knowns(classification: GoalClassification) -> list[str]:
+    knowns: list[str] = []
+
+    for key in ["W0", "x0", "D", "xDavg", "B", "xB"]:
+        if _has_value(classification, key):
+            knowns.append(key)
+
+    if _has_value(classification, "feed_volume") and _has_value(classification, "feed_abv"):
+        knowns.extend(["W0", "x0"])
+    elif _has_value(classification, "feed_abv"):
+        knowns.append("x0")
+
+    if _has_value(classification, "product_volume") and _has_value(classification, "product_abv"):
+        knowns.extend(["D", "xDavg"])
+    elif _has_value(classification, "product_abv"):
+        knowns.append("xDavg")
+
+    if _has_value(classification, "bottoms_volume") and _has_value(classification, "bottoms_abv"):
+        knowns.extend(["B", "xB"])
+    elif _has_value(classification, "bottoms_abv"):
+        knowns.append("xB")
+
+    return _dedupe(knowns)
+
+
 def _w0_looks_user_friendly(classification: GoalClassification) -> bool:
     value = classification.variable_assignments.get("W0")
     if value is None:
@@ -206,44 +248,91 @@ def _plan_product_to_feed_sweep(classification: GoalClassification) -> WorkflowP
     return plan
 
 
-def _plan_single_rayleigh(classification: GoalClassification) -> WorkflowPlan:
+def _plan_solve_rayleigh_batch_variables(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
-    plan.required_inputs = ["W0", "x0", "xB"]
-    plan.available_inputs = _assigned_keys(classification)
-    plan.missing_inputs = [name for name in plan.required_inputs if not _has_value(classification, name)]
-    plan.ready_to_execute = not plan.missing_inputs
+    normalized_knowns = _normalized_rayleigh_knowns(classification)
+    known_set = set(normalized_knowns)
+    plan.available_inputs = _dedupe(_assigned_keys(classification))
+    plan.normalization_steps.append(
+        "Convert user-facing volume and ABV inputs to internal moles and mole fractions where needed."
+    )
     plan.calculation_steps.extend(
         [
-            "Run one Rayleigh calculation for the specified starting and stopping basis.",
-            "Calculate requested outputs such as B, D, or xDavg.",
+            "Apply the Rayleigh equation to relate W0, B, x0, and xB.",
+            "Apply total balance W0 = D + B.",
+            "Apply ethanol balance W0*x0 = D*xDavg + B*xB.",
+            "Solve the missing batch variables.",
         ]
     )
+    plan.result_steps.extend(
+        [
+            "Return internal model variables.",
+            "Convert total mixture amounts to liters and compositions to ABV where possible.",
+        ]
+    )
+    supported_case_sets = [
+        {"W0", "x0", "xB"},
+        {"W0", "x0", "D"},
+        {"D", "xDavg", "x0"},
+        {"D", "xDavg", "xB"},
+    ]
+    plan.ready_to_execute = any(case.issubset(known_set) for case in supported_case_sets)
+    if plan.ready_to_execute:
+        plan.missing_inputs = []
+    else:
+        candidate_missing_lists = [
+            [name for name in case if name not in known_set]
+            for case in supported_case_sets
+        ]
+        candidate_missing_lists.sort(key=lambda items: (len(items), items))
+        plan.missing_inputs = candidate_missing_lists[0] if candidate_missing_lists else list(classification.missing_inputs)
     if plan.ready_to_execute:
         plan.suggested_next_message = (
-            "This request is ready for a direct Rayleigh-style calculation once execution is connected."
+            "This request is ready for a direct Rayleigh-constrained solve."
         )
     else:
         plan.suggested_next_message = (
-            "Provide W0, x0, and xB so the direct Rayleigh-style calculation can run."
+            f"Provide the missing values for one supported Rayleigh solve case: {', '.join(plan.missing_inputs)}."
         )
     return plan
 
 
-def _plan_mole_balance(classification: GoalClassification) -> WorkflowPlan:
+def _plan_solve_mole_balance(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
-    plan.available_inputs = _assigned_keys(classification)
-    plan.calculation_steps.append(
-        "Use the overall mole balance relationship to solve the requested unknown."
+    normalized_knowns = _normalized_balance_knowns(classification)
+    plan.available_inputs = _dedupe(_assigned_keys(classification))
+    plan.normalization_steps.append(
+        "Convert user-facing volume and ABV inputs to internal moles and mole fractions where needed."
     )
-    plan.ready_to_execute = len(plan.available_inputs) >= 4 and len(classification.requested_outputs) >= 1
+    plan.calculation_steps.extend(
+        [
+            "Apply total balance W0 = D + B.",
+            "Apply ethanol balance W0*x0 = D*xDavg + B*xB.",
+            "Solve requested unknown variable(s).",
+        ]
+    )
+    plan.result_steps.extend(
+        [
+            "Return internal model variables.",
+            "Convert amounts to liters and compositions to ABV when possible.",
+        ]
+    )
+    supported_case_sets = [
+        {"W0", "x0", "D", "xDavg"},
+        {"W0", "x0", "B", "xB"},
+        {"D", "xDavg", "B", "xB"},
+        {"W0", "D", "xDavg", "xB"},
+        {"W0", "x0", "D", "xB"},
+    ]
+    plan.ready_to_execute = any(case.issubset(set(normalized_knowns)) for case in supported_case_sets)
     plan.missing_inputs = list(classification.missing_inputs)
     if plan.ready_to_execute:
         plan.suggested_next_message = (
-            "This request has enough known values to attempt a mole-balance solve once execution is connected."
+            "This request has enough known values for a mole-balance solve."
         )
     else:
         plan.suggested_next_message = (
-            "Provide at least four known variables and indicate which unknown should be solved from the mole balance."
+            "Provide more known batch values so I can solve the remaining variables from the mole balance."
         )
     return plan
 
@@ -294,8 +383,8 @@ def create_workflow_plan(classification: GoalClassification) -> WorkflowPlan:
     planners = {
         "feed_to_product_sweep": _plan_feed_to_product_sweep,
         "product_to_feed_sweep": _plan_product_to_feed_sweep,
-        "single_rayleigh_calculation": _plan_single_rayleigh,
-        "mole_balance_calculation": _plan_mole_balance,
+        "solve_rayleigh_batch_variables": _plan_solve_rayleigh_batch_variables,
+        "solve_mole_balance": _plan_solve_mole_balance,
         "consistency_check": _plan_consistency_check,
         "explain_variable_or_workflow": _plan_explanation,
         "unsupported_or_unclear": _plan_unsupported,

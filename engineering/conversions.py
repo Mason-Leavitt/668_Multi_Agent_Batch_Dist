@@ -245,12 +245,19 @@ def get_moles_and_etoh_frac_from_volume_L_and_abv(
     
     return results
 
+def get_abv_from_mol_frac(x_etoh:float) -> float:
+    mass_frac = get_mass_percent_etoh_from_mole_fraction(x_etoh)
+    density = get_mixture_density(mass_frac, refs.DENSITY_BY_MASS_PERCENT_20C)
+    abv = get_percent_from_density(density, refs.DENSITY_BY_VOL_PERCENT_20C)
+    return abv
+
+
 if __name__ == "__main__":
     
     
     info = get_moles_and_etoh_frac_from_volume_L_and_abv(
         volume_L=100.0,
-        abv_percent=10.0,
+        abv_percent=5.0,
     )
 
     print(f"Volume: {info['volume_L']:.3f} L")
@@ -261,3 +268,5 @@ if __name__ == "__main__":
     print(f"Moles EtOH: {info['moles_etoh']:.3f} mol")
     print(f"Moles H2O: {info['moles_h2o']:.3f} mol")
     print(f"xEtOH: {info['x_etoh']:.6f}")
+
+    print(info['x_etoh'])

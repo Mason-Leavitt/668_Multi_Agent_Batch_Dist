@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from engineering.y_lookup_from_x import get_y
+import engineering.conversions as conv
 
 def validate_finite(value: float, name: str) -> None:
     if not math.isfinite(value):
@@ -343,9 +344,9 @@ def find_W0_x0_combinations_from_xDavg_D(
     xDavg_target: float,
     x0_min: float = 0.001,
     x0_max: float = 0.89,
-    num_x0: int = 100,
-    num_xB: int = 100,
-    tolerance: float = 0.002,
+    num_x0: int = 200,
+    num_xB: int = 200,
+    tolerance: float = 0.01,
     n: int = 100,
 ):
     """
@@ -445,6 +446,156 @@ def create_plot_W0_vs_x0_combinations(
     plt.xlabel("Initial ethanol mole fraction, x0")
     plt.ylabel("Required initial charge, W0 [mol]")
     plt.title(f"Required feed amount and feed composition for D = {D_target}, xDavg = {xDavg_target}")
+    plt.grid(show_grid)
+
+def create_plot_W0_vs_x0_combinations_in_L_ABV(
+    results: list[dict],
+    D_target: float,
+    xDavg_target: float,
+    color_by: str | None = "xB",
+    show_grid: bool = True,
+    show_points: bool = True,
+    fit_degree: int = 2,
+) -> None:
+    """
+    Plot required initial feed volume W0 [L] as a function of initial feed
+    strength x0 [% ABV] using a best-fit line.
+
+    Converts:
+        W0 [mol] + x0 [mole fraction] -> W0 [L]
+        x0 [mole fraction] -> x0 [% ABV]
+        D_target [mol] + xDavg_target [mole fraction] -> D_target [L]
+        xDavg_target [mole fraction] -> xDavg_target [% ABV]
+
+    Args:
+        results:
+            List of result dictionaries. Each row should contain at least
+            "W0" and "x0".
+        D_target:
+            Target distillate/product amount in moles.
+        xDavg_target:
+            Target average distillate ethanol mole fraction.
+        color_by:
+            Optional result field to color the points by. Common choices:
+            "xB", "x0", "xDavg", "error", or None.
+        show_grid:
+            Whether to show grid lines.
+        show_points:
+            Whether to show the original result points.
+        fit_degree:
+            Polynomial degree for the fit line.
+            Use 1 for linear best fit.
+            Use 2 for quadratic fit.
+    """
+    if not results:
+        print("No results to plot.")
+        return
+
+    converted_rows = []
+
+    for row in results:
+        W0 = row["W0"]
+        x0 = row["x0"]
+
+        feed_volume_L = conv.get_mixture_volume_L_from_moles(
+            total_moles=W0,
+            x_etoh=x0,
+        )
+
+        feed_abv = conv.get_abv_from_mol_frac(x0)
+
+        converted_rows.append({
+            **row,
+            "feed_volume_L": feed_volume_L,
+            "feed_abv": feed_abv,
+        })
+
+    # Sort by x-axis value so fit-line plotting is clean.
+    converted_rows.sort(key=lambda row: row["feed_abv"])
+
+    x0_abv_values = np.array(
+        [row["feed_abv"] for row in converted_rows],
+        dtype=float,
+    )
+
+    W0_volume_L_values = np.array(
+        [row["feed_volume_L"] for row in converted_rows],
+        dtype=float,
+    )
+
+    D_target_volume_L = conv.get_mixture_volume_L_from_moles(
+        total_moles=D_target,
+        x_etoh=xDavg_target,
+    )
+
+    xDavg_target_abv = conv.get_abv_from_mol_frac(xDavg_target)
+
+    plt.figure()
+
+    if show_points:
+        if color_by is not None and color_by in converted_rows[0]:
+            color_values = []
+
+            for row in converted_rows:
+                value = row[color_by]
+
+                if color_by in {"xB", "x0", "xDavg"}:
+                    value = conv.get_abv_from_mol_frac(value)
+
+                color_values.append(value)
+
+            scatter = plt.scatter(
+                x0_abv_values,
+                W0_volume_L_values,
+                c=color_values,
+            )
+
+            color_label = color_by
+            if color_by in {"xB", "x0", "xDavg"}:
+                color_label = f"{color_by} [% ABV]"
+
+            plt.colorbar(scatter, label=color_label)
+
+        else:
+            plt.scatter(x0_abv_values, W0_volume_L_values)
+
+    # Best-fit line.
+    if len(x0_abv_values) >= fit_degree + 1:
+        coefficients = np.polyfit(
+            x0_abv_values,
+            W0_volume_L_values,
+            deg=fit_degree,
+        )
+
+        fit_function = np.poly1d(coefficients)
+
+        x_fit = np.linspace(
+            x0_abv_values.min(),
+            x0_abv_values.max(),
+            200,
+        )
+
+        y_fit = fit_function(x_fit)
+
+        # plt.plot(
+        #     x_fit,
+        #     y_fit,
+        #     label=f"Best-fit line, degree {fit_degree}",
+        # )
+
+        plt.legend()
+    else:
+        print(
+            f"Not enough points for degree {fit_degree} fit. "
+            f"Need at least {fit_degree + 1} points."
+        )
+
+    plt.xlabel("Initial feed strength, x0 [% ABV]")
+    plt.ylabel("Required initial feed volume, W0 [L]")
+    plt.title(
+        f"Required feed volume and feed strength\n"
+        f"Target product = {D_target_volume_L:.2f} L at {xDavg_target_abv:.2f}% ABV"
+    )
     plt.grid(show_grid)
 
 def create_plot_W0_vs_xB_combinations(
@@ -636,6 +787,65 @@ def create_plot_D_vs_xDavg(
 
     plt.colorbar(scatter, label="Final still ethanol mole fraction, xB")
 
+def create_plot_D_vs_xDavg_in_L_ABV(
+    results: list[dict],
+    W0: float,
+    x0: float,
+) -> None:
+    """
+    Plot distillate volume D [L] as a function of average distillate strength
+    xDavg [% ABV].
+
+    Each point corresponds to one xB value from the Rayleigh batch calculation.
+
+    Conversions:
+        D [mol] + xDavg [mole fraction] -> D [L]
+        xDavg [mole fraction] -> xDavg [% ABV]
+        xB [mole fraction] -> xB [% ABV]
+        W0 [mol] + x0 [mole fraction] -> W0 [L]
+        x0 [mole fraction] -> x0 [% ABV]
+    """
+    if not results:
+        print("No results to plot.")
+        return
+
+    D_volume_L_values = [
+            conv.get_mixture_volume_L_from_moles(
+                total_moles=row["D"],
+                x_etoh=row["xDavg"],
+            )
+            for row in results
+        ]
+    
+    xDavg_abv_values = [
+        conv.get_abv_from_mol_frac(row["xDavg"])
+        for row in results
+    ]
+
+    xB_abv_values = [
+        conv.get_abv_from_mol_frac(row["xB"])
+        for row in results
+    ]
+
+    W0_volume_L = conv.get_mixture_volume_L_from_moles(
+        total_moles=W0,
+        x_etoh=x0,
+    )
+
+    x0_abv = conv.get_abv_from_mol_frac(x0)
+
+    plt.figure()
+    scatter = plt.scatter(xDavg_abv_values, D_volume_L_values, c=xB_abv_values)
+
+    plt.xlabel("Average distillate ethanol content, xDavg [% ABV]")
+    plt.ylabel("Distillate collected, D [L]")
+    plt.title(
+        f"Distillate vs EtOH composition for feed volume = {W0_volume_L:.2f} L at = {x0_abv:.2f}% ABV"
+    )
+    plt.grid(True)
+
+    plt.colorbar(scatter, label="Final still ethanol content, xB [% ABV]")
+
 if __name__ == "__main__":
 
     D = 20
@@ -643,14 +853,16 @@ if __name__ == "__main__":
 
     combo_results_W0_x0 = find_W0_x0_combinations_from_xDavg_D(D, xDavg)
     create_plot_W0_vs_x0_combinations(combo_results_W0_x0, D, xDavg)
+    create_plot_W0_vs_x0_combinations_in_L_ABV(combo_results_W0_x0, D, xDavg)
     plt.show()
 
 
     W0 = 1000
     x0 = 0.05
 
-    combo_results_D_xDavg = find_D_xDavg_combinations_from_W0_x0(W0, x0)
-    create_plot_xDavg_vs_xB(combo_results_D_xDavg, W0, x0)
-    create_plot_D_vs_xB(combo_results_D_xDavg, W0, x0)
-    create_plot_D_vs_xDavg(combo_results_D_xDavg, W0, x0)
+    # combo_results_D_xDavg = find_D_xDavg_combinations_from_W0_x0(W0, x0)
+    # create_plot_xDavg_vs_xB(combo_results_D_xDavg, W0, x0)
+    # create_plot_D_vs_xB(combo_results_D_xDavg, W0, x0)
+    # create_plot_D_vs_xDavg(combo_results_D_xDavg, W0, x0)
+    # create_plot_D_vs_xDavg_in_L_ABV(combo_results_D_xDavg, W0, x0)
     plt.show()

@@ -41,6 +41,8 @@ VARIABLE_ALIASES = {
         "product strength",
         "distillate strength",
     ],
+    "bottoms_volume": ["bottoms volume", "remaining volume", "volume left", "boiler volume"],
+    "bottoms_abv": ["bottoms abv", "remaining abv", "boiler abv", "bottoms strength"],
 }
 
 DISPLAY_VARIABLE_ORDER = [
@@ -54,6 +56,8 @@ DISPLAY_VARIABLE_ORDER = [
     "feed_abv",
     "product_volume",
     "product_abv",
+    "bottoms_volume",
+    "bottoms_abv",
 ]
 
 VOLUME_TERMS = [
@@ -369,14 +373,33 @@ def _determine_missing_inputs(goal: str, known_inputs: list[str], sweep_variable
     required_by_goal = {
         "feed_to_product_sweep": ["W0", "x0"],
         "product_to_feed_sweep": ["D", "xDavg"],
-        "single_rayleigh_calculation": ["W0", "x0", "xB"],
-        "mole_balance_calculation": [],
+        "solve_rayleigh_batch_variables": ["W0", "x0", "xB"],
+        "solve_mole_balance": [],
         "consistency_check": [],
         "explain_variable_or_workflow": [],
         "unsupported_or_unclear": [],
     }
 
     required = list(required_by_goal.get(goal, []))
+    if goal == "solve_rayleigh_batch_variables":
+        known_set = set(known_inputs)
+        supported_cases = [
+            {"W0", "x0", "xB"},
+            {"W0", "x0", "D"},
+            {"D", "xDavg", "x0"},
+            {"D", "xDavg", "xB"},
+            {"feed_volume", "feed_abv", "bottoms_abv"},
+            {"product_volume", "product_abv", "feed_abv"},
+            {"product_volume", "product_abv", "bottoms_abv"},
+        ]
+        if any(case.issubset(known_set) for case in supported_cases):
+            return []
+        missing_by_case = [
+            [name for name in case if name not in known_set]
+            for case in supported_cases
+        ]
+        missing_by_case.sort(key=lambda items: (len(items), items))
+        return missing_by_case[0] if missing_by_case else []
     if goal == "feed_to_product_sweep" and {"feed_volume", "feed_abv"}.issubset(set(known_inputs)):
         required = ["feed_volume", "feed_abv"]
     if goal == "product_to_feed_sweep" and {"product_volume", "product_abv"}.issubset(set(known_inputs)):
@@ -467,12 +490,14 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         confidence = 0.88
     elif _contains_any(normalized, MOLE_BALANCE_TERMS) or (
         "solve for" in normalized and _contains_any(normalized, [" x0 ", " xb ", " b ", " w0 "])
-    ):
-        goal = "mole_balance_calculation"
+    ) or _contains_any(normalized, ["what is left in the still", "what remains in the boiler", "what did i start with"]):
+        goal = "solve_mole_balance"
         output_mode = "numeric_answer" if output_mode == "numeric_answer" else output_mode
         confidence = 0.9
-    elif "rayleigh" in normalized and not _contains_any(normalized, ["sweep", "possible", "combinations"]):
-        goal = "single_rayleigh_calculation"
+    elif (
+        "rayleigh" in normalized and not _contains_any(normalized, ["sweep", "possible", "combinations"])
+    ) or _contains_any(normalized, ["stop when the boiler is", "stop at xb", "what product do i get", "calculate xdavg"]):
+        goal = "solve_rayleigh_batch_variables"
         output_mode = "numeric_answer" if output_mode == "numeric_answer" else output_mode
         confidence = 0.84
     else:
@@ -581,7 +606,11 @@ def analyze_message_features(user_message: str) -> dict[str, object]:
     }
 
 
-def classify_goal_llm(user_message: str, model_name: str = "gpt-4o-mini") -> GoalClassification:
+def classify_goal_llm(
+    user_message: str,
+    model_name: str = "gpt-4o-mini",
+    classification_hint: str | None = None,
+) -> GoalClassification:
     """Classify a user request with an LLM using structured output."""
 
     from dotenv import load_dotenv
@@ -604,17 +633,33 @@ def classify_goal_llm(user_message: str, model_name: str = "gpt-4o-mini") -> Goa
                 "human",
                 "User request:\n"
                 f"{user_message}\n\n"
+                + (
+                    f"The semantic router thinks the likely goal is: {classification_hint}. "
+                    "Use this as a hint, but still classify based on the full user request.\n\n"
+                    if classification_hint
+                    else ""
+                )
+                + (
                 "Lightweight detected hints, for context only:\n"
                 f"{json.dumps(feature_hints, indent=2)}\n\n"
                 "Important: these hints may be incomplete or wrong. "
-                "Make the final classification from the full request and schema rules.",
+                "Make the final classification from the full request and schema rules."
+                ),
             ),
         ]
     )
     return result
 
 
-def classify_goal(user_message: str, model_name: str = "gpt-4o-mini") -> GoalClassification:
+def classify_goal(
+    user_message: str,
+    model_name: str = "gpt-4o-mini",
+    classification_hint: str | None = None,
+) -> GoalClassification:
     """Classify a user request with the LLM structured classifier."""
 
-    return classify_goal_llm(user_message, model_name=model_name)
+    return classify_goal_llm(
+        user_message,
+        model_name=model_name,
+        classification_hint=classification_hint,
+    )

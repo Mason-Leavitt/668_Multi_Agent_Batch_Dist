@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 GoalName = Literal[
     "feed_to_product_sweep",
     "product_to_feed_sweep",
-    "single_rayleigh_calculation",
-    "mole_balance_calculation",
+    "solve_rayleigh_batch_variables",
+    "solve_mole_balance",
     "consistency_check",
     "explain_variable_or_workflow",
     "unsupported_or_unclear",

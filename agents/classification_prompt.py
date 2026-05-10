@@ -13,7 +13,7 @@ Do not treat unit conversion as a top-level goal.
 Unit conversion is an internal normalization step.
 For example:
 - If the user gives "5 gallons at 12% ABV", this means the input format is volume_abv and requires_input_conversion should be true.
-- The actual goal is probably feed_to_product_sweep, product_to_feed_sweep, single_rayleigh_calculation, consistency_check, or another supported top-level goal.
+- The actual goal is probably feed_to_product_sweep, product_to_feed_sweep, solve_rayleigh_batch_variables, consistency_check, or another supported top-level goal.
 
 Supported top-level goals:
 
@@ -33,21 +33,25 @@ Examples:
 - Given D and xDavg, what W0 and x0 combinations could work?
 - I want 1 gallon of product at 60% ABV. What feed do I need?
 - How much wash do I need to get 2 L of 50% ABV distillate?
+- I want an output of 10 L at 45% ABV. What inputs can I use to achieve that?
 
-single_rayleigh_calculation:
-The user wants one direct Rayleigh-style calculation for a specific starting and stopping condition.
+solve_rayleigh_batch_variables:
+The user wants one direct Rayleigh-constrained batch solve using the Rayleigh equation plus total and ethanol mole balances.
 
 Examples:
 - Given W0, x0, and xB, calculate D and xDavg.
 - If I start at x0 and stop at xB, what is the Rayleigh result?
+- I have 100 L at 10% ABV and stop when the boiler is 2% ABV. What product do I get?
+- If I want 10 L at 45% ABV and my feed is 10% ABV, how much feed do I need?
 
-mole_balance_calculation:
-The user wants to solve one variable from an overall mole balance.
+solve_mole_balance:
+The user wants to solve one or more unknown batch variables from the total mole balance and ethanol mole balance.
 
 Examples:
-- Given W0, x0, D, and xDavg, solve for B.
-- Use the mole balance to solve for xB.
-- Rearrange the material balance for x0.
+- Given W0 = 100 mol, x0 = 0.1, D = 20 mol, and xDavg = 0.4, solve for B and xB.
+- I started with 100 L at 10% ABV and collected 10 L at 45% ABV. What is left in the still?
+- If my feed is 100 L at 10% ABV and my bottoms are 80 L at 3% ABV, how much product did I collect and what was its ABV?
+- I know D and xDavg and B and xB. What W0 and x0 did I start with?
 
 consistency_check:
 The user wants to check whether proposed values are mathematically or physically valid together.
@@ -100,6 +104,12 @@ User-friendly product/distillate amount, such as gallons or liters collected.
 
 product_abv:
 User-friendly product/distillate strength, such as ABV, percent alcohol, or proof.
+
+bottoms_volume:
+User-friendly remaining still bottoms amount, such as gallons or liters left in the boiler.
+
+bottoms_abv:
+User-friendly remaining still bottoms strength, such as ABV, percent alcohol, or proof.
 
 Users may write model variable names but assign user-friendly units to them.
 
@@ -230,12 +240,119 @@ output_format = user_friendly
 requires_input_conversion = true
 requires_output_conversion = true
 
-Example 4:
-User: "Use the mole balance to solve for xB."
+Example 3b:
+User: "given a product amount of 10L at 45% abv, what feed conditions might work?"
 Classification:
-goal = mole_balance_calculation
+goal = product_to_feed_sweep
+output_mode = mixed
+known_inputs = ["product_volume", "product_abv"]
+requested_outputs = ["feed_volume", "feed_abv"]
+missing_inputs = []
+variable_assignments = {
+    "product_volume": "10 L",
+    "product_abv": "45% ABV"
+}
+input_format = volume_abv
+output_format = user_friendly
+requires_input_conversion = true
+requires_output_conversion = true
+confidence should be high
+
+Example 3c:
+User: "i want an output of 10L at 45% abv. what inputs can i use to achieve that?"
+Classification:
+goal = product_to_feed_sweep
+output_mode = mixed
+known_inputs = ["product_volume", "product_abv"]
+requested_outputs = ["feed_volume", "feed_abv"]
+missing_inputs = []
+variable_assignments = {
+    "product_volume": "10 L",
+    "product_abv": "45% ABV"
+}
+input_format = volume_abv
+output_format = user_friendly
+requires_input_conversion = true
+requires_output_conversion = true
+confidence should be high or moderate-high
+
+Example 3d:
+User: "i have an input of 100L at 10% abv. what outputs can i get?"
+Classification:
+goal = feed_to_product_sweep
+known_inputs = ["feed_volume", "feed_abv"]
+requested_outputs = ["product_volume", "product_abv", "D", "xDavg"]
+variable_assignments = {
+    "feed_volume": "100 L",
+    "feed_abv": "10% ABV"
+}
+
+Example 4:
+User: "Given W0 = 100 mol, x0 = 0.05, and xB = 0.01, calculate D and xDavg."
+Classification:
+goal = solve_rayleigh_batch_variables
 output_mode = numeric_answer
-requested_outputs = ["xB"]
+known_inputs = ["W0", "x0", "xB"]
+requested_outputs = ["D", "xDavg", "B"]
+variable_assignments = {
+    "W0": "100 mol",
+    "x0": "0.05",
+    "xB": "0.01"
+}
+input_format = model_units
+output_format = model_units
+
+Example 4b:
+User: "I have 100 L at 10% ABV and stop when the boiler is 2% ABV. What product do I get?"
+Classification:
+goal = solve_rayleigh_batch_variables
+known_inputs = ["feed_volume", "feed_abv", "bottoms_abv"]
+requested_outputs = ["D", "xDavg", "B"]
+variable_assignments = {
+    "feed_volume": "100 L",
+    "feed_abv": "10% ABV",
+    "bottoms_abv": "2% ABV"
+}
+input_format = volume_abv
+output_format = user_friendly
+requires_input_conversion = true
+requires_output_conversion = true
+
+Example 4c:
+User: "Given W0 = 100 mol, x0 = 0.05, and D = 20 mol, calculate xDavg."
+Classification:
+goal = solve_rayleigh_batch_variables
+known_inputs = ["W0", "x0", "D"]
+requested_outputs = ["xDavg", "xB", "B"]
+variable_assignments = {
+    "W0": "100 mol",
+    "x0": "0.05",
+    "D": "20 mol"
+}
+input_format = model_units
+output_format = model_units
+
+Example 4d:
+User: "I start with 100 L at 10% ABV and collect 10 L. What is the average product ABV?"
+Classification:
+goal = solve_rayleigh_batch_variables
+known_inputs = ["feed_volume", "feed_abv", "product_volume"]
+requested_outputs = ["xDavg", "xB", "B"]
+input_format = volume_abv
+output_format = user_friendly
+requires_input_conversion = true
+requires_output_conversion = true
+
+Example 4e:
+User: "If I want 10 L at 45% ABV and my feed is 10% ABV, how much feed do I need?"
+Classification:
+goal = solve_rayleigh_batch_variables
+known_inputs = ["product_volume", "product_abv", "feed_abv"]
+requested_outputs = ["W0", "B", "xB"]
+input_format = volume_abv
+output_format = user_friendly
+requires_input_conversion = true
+requires_output_conversion = true
 
 Example 5:
 User: "What does xDavg mean?"
@@ -297,6 +414,15 @@ Do not omit D.
 
 When possible, populate variable_assignments with explicit values copied from the user request, such as W0=100, x0=0.08, 5 gallons, or 60% ABV.
 variable_assignments values may be strings or simple numeric values when appropriate.
+
+Volume and ABV are valid and sufficient user-facing inputs for feed-based and product-based sweeps.
+Do not mark D or xDavg as missing when product_volume and product_abv are available.
+Do not mark W0 or x0 as missing when feed_volume and feed_abv are available.
+Contrast rule:
+- output target + asks for inputs/feed conditions => product_to_feed_sweep
+- input/feed conditions + asks for outputs/product outcomes => feed_to_product_sweep
+- if the user asks for many combinations or options => use a sweep workflow
+- if the user gives enough values for one direct Rayleigh-constrained solution => use solve_rayleigh_batch_variables
 
 The agent should return only the structured GoalClassification object.
 """.strip()

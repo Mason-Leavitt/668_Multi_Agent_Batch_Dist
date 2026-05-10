@@ -20,3 +20,5 @@ class WorkflowExecutionResult(BaseModel):
     rows: list[dict[str, ScalarValue]] = Field(default_factory=list)
 
     warnings: list[str] = Field(default_factory=list)
+    normalized_inputs: dict[str, ScalarValue] = Field(default_factory=dict)
+    execution_parameters: dict[str, ScalarValue] = Field(default_factory=dict)

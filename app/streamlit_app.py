@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
     
 from agents.interface_agent import analyze_message_features, classify_goal
+from agents.workflow_executor import execute_workflow
 from agents.workflow_planner import create_workflow_plan
 
 
@@ -34,6 +35,10 @@ if "submitted_request" not in st.session_state:
     st.session_state.submitted_request = ""
 if "last_error" not in st.session_state:
     st.session_state.last_error = None
+if "execution_result" not in st.session_state:
+    st.session_state.execution_result = None
+if "execution_error" not in st.session_state:
+    st.session_state.execution_error = None
 
 st.write("Enter a request below and press Enter to submit it.")
 
@@ -41,6 +46,8 @@ submitted_request = st.chat_input("Describe the batch distillation question you 
 if submitted_request:
     st.session_state.submitted_request = submitted_request
     st.session_state.last_error = None
+    st.session_state.execution_result = None
+    st.session_state.execution_error = None
 
 user_request = st.session_state.submitted_request
 classification = None
@@ -96,3 +103,28 @@ else:
         st.subheader("Workflow Plan")
         st.info(workflow_plan.suggested_next_message)
         st.json(workflow_plan.model_dump())
+        if workflow_plan.ready_to_execute:
+            if st.button("Run planned workflow", type="primary"):
+                try:
+                    st.session_state.execution_result = execute_workflow(classification, workflow_plan)
+                    st.session_state.execution_error = None
+                except Exception as exc:
+                    st.session_state.execution_result = None
+                    st.session_state.execution_error = str(exc)
+            if st.session_state.execution_error:
+                st.error("Workflow execution failed.")
+                with st.expander("Debug error details"):
+                    st.code(st.session_state.execution_error)
+            elif st.session_state.execution_result is not None:
+                execution_result = st.session_state.execution_result
+                if execution_result.success:
+                    st.success(execution_result.message)
+                else:
+                    st.warning(execution_result.message)
+                if execution_result.warnings:
+                    for warning in execution_result.warnings:
+                        st.info(warning)
+                if execution_result.rows:
+                    st.dataframe(execution_result.rows, use_container_width=True)
+                with st.expander("Raw Execution Result JSON"):
+                    st.json(execution_result.model_dump())

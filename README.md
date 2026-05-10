@@ -51,6 +51,21 @@ This plan answers:
 
 The next implementation step is to connect one workflow path to the deterministic engineering functions without changing the classifier or planner roles.
 
+## First Executable Workflow
+
+Only `feed_to_product_sweep` is executable right now.
+Other goals can still be classified and planned, but they are not executed yet.
+This executable workflow uses deterministic engineering functions from the existing engineering package.
+The LLM is used only for classification, not for math.
+
+Test prompts:
+
+1. `Given W0 = 100 mol and x0 = 0.05, what D and xDavg can I get over different xB values?`
+2. `If W0 = 100 L at 5% ABV ethanol, what combinations of xDavg and D could I get?`
+3. `I want 1 gallon of product at 60% ABV. What feed do I need?`
+
+For prompt 3, classification and planning should work, but execution should report that `product_to_feed_sweep` is not implemented yet.
+
 ## Troubleshooting
 
 - Check that `OPENAI_API_KEY` exists in `.env`.

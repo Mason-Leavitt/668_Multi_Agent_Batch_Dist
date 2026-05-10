@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
     
 from agents.interface_agent import analyze_message_features, classify_goal
+from agents.workflow_planner import create_workflow_plan
 
 
 st.set_page_config(page_title="Batch Distillation Interface Agent Prototype", layout="wide")
@@ -43,6 +44,7 @@ if submitted_request:
 
 user_request = st.session_state.submitted_request
 classification = None
+workflow_plan = None
 feature_hints = analyze_message_features(user_request) if user_request.strip() else None
 
 if user_request.strip():
@@ -51,6 +53,7 @@ if user_request.strip():
             user_request,
             model_name=model_name.strip() or "gpt-4o-mini",
         )
+        workflow_plan = create_workflow_plan(classification)
     except Exception as exc:
         st.session_state.last_error = str(exc)
 
@@ -89,3 +92,7 @@ else:
 
     st.subheader("Classification")
     st.json(classification.model_dump())
+    if workflow_plan is not None:
+        st.subheader("Workflow Plan")
+        st.info(workflow_plan.suggested_next_message)
+        st.json(workflow_plan.model_dump())

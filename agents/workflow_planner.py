@@ -21,6 +21,29 @@ def _has_all(items: list[str], required: list[str]) -> bool:
     return all(name in item_set for name in required)
 
 
+def _has_value(classification: GoalClassification, key: str) -> bool:
+    if key not in classification.variable_assignments:
+        return False
+    value = classification.variable_assignments[key]
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() != ""
+    return True
+
+
+def _has_any_value(classification: GoalClassification, keys: list[str]) -> bool:
+    return any(_has_value(classification, key) for key in keys)
+
+
+def _assigned_keys(classification: GoalClassification) -> list[str]:
+    return [
+        key
+        for key in classification.variable_assignments
+        if _has_value(classification, key)
+    ]
+
+
 def _w0_looks_user_friendly(classification: GoalClassification) -> bool:
     value = classification.variable_assignments.get("W0")
     if value is None:
@@ -28,7 +51,7 @@ def _w0_looks_user_friendly(classification: GoalClassification) -> bool:
     if isinstance(value, str):
         lowered = value.lower()
         return any(unit in lowered for unit in ["l", "liter", "litre", "gal", "gallon", "ml"])
-    return classification.input_format in {"volume_abv", "mixed_units"}
+    return False
 
 
 def _base_plan(classification: GoalClassification) -> WorkflowPlan:
@@ -36,8 +59,8 @@ def _base_plan(classification: GoalClassification) -> WorkflowPlan:
         workflow_name=classification.goal,
         ready_to_execute=False,
         required_inputs=[],
-        available_inputs=list(classification.known_inputs),
-        missing_inputs=list(classification.missing_inputs),
+        available_inputs=_assigned_keys(classification),
+        missing_inputs=[],
         normalization_steps=[],
         calculation_steps=[],
         result_steps=[],
@@ -48,7 +71,7 @@ def _base_plan(classification: GoalClassification) -> WorkflowPlan:
 
 def _plan_feed_to_product_sweep(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
-    conceptual_available = list(classification.known_inputs)
+    assigned_inputs = _assigned_keys(classification)
     input_format = classification.input_format
 
     if input_format == "model_units":
@@ -61,12 +84,14 @@ def _plan_feed_to_product_sweep(classification: GoalClassification) -> WorkflowP
             "W0 was provided with user-friendly units; it will need normalization before internal calculations."
         )
 
-    if _w0_looks_user_friendly(classification) and "feed_volume" not in conceptual_available:
-        conceptual_available.append("feed_volume")
-        if "W0" in classification.known_inputs and "feed_abv" in classification.known_inputs:
-            plan.warnings.append(
-                "W0 was provided with user-friendly units; it will need normalization before internal calculations."
-            )
+    has_model_values = _has_value(classification, "W0") and _has_value(classification, "x0")
+    has_user_friendly_values = _has_value(classification, "feed_volume") and _has_value(classification, "feed_abv")
+    has_mixed_volume_values = _w0_looks_user_friendly(classification) and _has_value(classification, "feed_abv")
+
+    if has_mixed_volume_values:
+        plan.warnings.append(
+            "W0 was provided with user-friendly units; it will need normalization before internal calculations."
+        )
 
     if classification.requires_input_conversion:
         plan.normalization_steps.append(
@@ -91,21 +116,32 @@ def _plan_feed_to_product_sweep(classification: GoalClassification) -> WorkflowP
         )
     plan.result_steps.append("Return requested D and xDavg combinations.")
 
-    plan.available_inputs = _dedupe(conceptual_available)
-    plan.missing_inputs = [
-        name for name in plan.required_inputs if name not in set(plan.available_inputs)
-    ]
-    plan.ready_to_execute = (
-        _has_all(plan.available_inputs, ["W0", "x0"])
-        or _has_all(plan.available_inputs, ["feed_volume", "feed_abv"])
-    )
+    plan.available_inputs = _dedupe(assigned_inputs)
+    if has_model_values or has_user_friendly_values or has_mixed_volume_values:
+        plan.missing_inputs = []
+    else:
+        plan.missing_inputs = [name for name in plan.required_inputs if not _has_value(classification, name)]
+        if input_format in {"volume_abv", "mixed_units"} and not has_user_friendly_values:
+            plan.missing_inputs = []
+            if not (_has_value(classification, "feed_volume") or _w0_looks_user_friendly(classification)):
+                plan.missing_inputs.append("feed_volume")
+            if not _has_value(classification, "feed_abv"):
+                plan.missing_inputs.append("feed_abv")
+        if input_format == "model_units" and not has_model_values:
+            plan.missing_inputs = []
+            if not _has_value(classification, "W0"):
+                plan.missing_inputs.append("W0")
+            if not _has_value(classification, "x0"):
+                plan.missing_inputs.append("x0")
+
+    plan.ready_to_execute = has_model_values or has_user_friendly_values or has_mixed_volume_values
     if plan.ready_to_execute:
         plan.suggested_next_message = (
             "This request is ready for a feed-to-product sweep once the deterministic engineering workflow is connected."
         )
     else:
         plan.suggested_next_message = (
-            "Provide both the starting feed amount and the starting feed composition so the feed-to-product sweep can run."
+            f"I can do this feed-to-product sweep, but I need values for {', '.join(plan.missing_inputs)} first."
         )
     plan.warnings = _dedupe(plan.warnings)
     return plan
@@ -113,11 +149,15 @@ def _plan_feed_to_product_sweep(classification: GoalClassification) -> WorkflowP
 
 def _plan_product_to_feed_sweep(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
+    assigned_inputs = _assigned_keys(classification)
 
     if classification.input_format == "model_units":
         plan.required_inputs = ["D", "xDavg"]
     else:
         plan.required_inputs = ["product_volume", "product_abv"]
+
+    has_model_values = _has_value(classification, "D") and _has_value(classification, "xDavg")
+    has_user_friendly_values = _has_value(classification, "product_volume") and _has_value(classification, "product_abv")
 
     if classification.requires_input_conversion:
         plan.normalization_steps.append(
@@ -137,20 +177,31 @@ def _plan_product_to_feed_sweep(classification: GoalClassification) -> WorkflowP
         )
     plan.result_steps.append("Return possible feed requirement combinations.")
 
-    plan.missing_inputs = [
-        name for name in plan.required_inputs if name not in set(plan.available_inputs)
-    ]
-    plan.ready_to_execute = (
-        _has_all(plan.available_inputs, ["D", "xDavg"])
-        or _has_all(plan.available_inputs, ["product_volume", "product_abv"])
-    )
+    plan.available_inputs = _dedupe(assigned_inputs)
+    if has_model_values or has_user_friendly_values:
+        plan.missing_inputs = []
+    else:
+        if classification.input_format == "model_units":
+            plan.missing_inputs = []
+            if not _has_value(classification, "D"):
+                plan.missing_inputs.append("D")
+            if not _has_value(classification, "xDavg"):
+                plan.missing_inputs.append("xDavg")
+        else:
+            plan.missing_inputs = []
+            if not _has_value(classification, "product_volume"):
+                plan.missing_inputs.append("product_volume")
+            if not _has_value(classification, "product_abv"):
+                plan.missing_inputs.append("product_abv")
+
+    plan.ready_to_execute = has_model_values or has_user_friendly_values
     if plan.ready_to_execute:
         plan.suggested_next_message = (
             "This request is ready for a product-to-feed sweep once the deterministic engineering workflow is connected."
         )
     else:
         plan.suggested_next_message = (
-            "Provide both the desired product amount and the desired product composition so the feed-requirement sweep can run."
+            "I can explore feed requirements, but I need the target product amount and product strength first."
         )
     return plan
 
@@ -158,9 +209,8 @@ def _plan_product_to_feed_sweep(classification: GoalClassification) -> WorkflowP
 def _plan_single_rayleigh(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
     plan.required_inputs = ["W0", "x0", "xB"]
-    plan.missing_inputs = [
-        name for name in plan.required_inputs if name not in set(plan.available_inputs)
-    ]
+    plan.available_inputs = _assigned_keys(classification)
+    plan.missing_inputs = [name for name in plan.required_inputs if not _has_value(classification, name)]
     plan.ready_to_execute = not plan.missing_inputs
     plan.calculation_steps.extend(
         [
@@ -181,10 +231,11 @@ def _plan_single_rayleigh(classification: GoalClassification) -> WorkflowPlan:
 
 def _plan_mole_balance(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
+    plan.available_inputs = _assigned_keys(classification)
     plan.calculation_steps.append(
         "Use the overall mole balance relationship to solve the requested unknown."
     )
-    plan.ready_to_execute = len(classification.known_inputs) >= 4 and len(classification.requested_outputs) >= 1
+    plan.ready_to_execute = len(plan.available_inputs) >= 4 and len(classification.requested_outputs) >= 1
     plan.missing_inputs = list(classification.missing_inputs)
     if plan.ready_to_execute:
         plan.suggested_next_message = (
@@ -199,7 +250,8 @@ def _plan_mole_balance(classification: GoalClassification) -> WorkflowPlan:
 
 def _plan_consistency_check(classification: GoalClassification) -> WorkflowPlan:
     plan = _base_plan(classification)
-    plan.ready_to_execute = len(classification.known_inputs) >= 4
+    plan.available_inputs = _assigned_keys(classification)
+    plan.ready_to_execute = len(plan.available_inputs) >= 4
     plan.calculation_steps.extend(
         [
             "Check whether the provided values satisfy the material balance.",

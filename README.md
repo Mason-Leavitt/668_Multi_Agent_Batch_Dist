@@ -11,6 +11,7 @@ It does not implement tool calling, memory, or multi-agent orchestration yet.
 
 Classification identifies the user's goal.
 Workflow planning maps that goal to required inputs, normalization needs, future calculation steps, and result-formatting expectations.
+The workflow planner distinguishes between variables mentioned by the user and variables with actual assigned values. A workflow is only `ready_to_execute` when the required values are present.
 The app still does not run calculations yet.
 
 Create a `.env` file in the project root:

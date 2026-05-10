@@ -54,6 +54,7 @@ class GoalClassification(BaseModel):
     known_inputs: list[str] = Field(default_factory=list)
     requested_outputs: list[str] = Field(default_factory=list)
     missing_inputs: list[str] = Field(default_factory=list)
+    variable_assignments: dict[str, str] = Field(default_factory=dict)
 
     input_format: InputFormat = "unknown"
     output_format: OutputFormat = "unknown"

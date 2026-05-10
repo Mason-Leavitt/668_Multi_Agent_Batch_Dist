@@ -1,4 +1,4 @@
-"""Deterministic request classification for the interface agent prototype."""
+"""Primary and fallback classification paths for the interface agent prototype."""
 
 from __future__ import annotations
 
@@ -41,6 +41,19 @@ VARIABLE_ALIASES = {
         "distillate strength",
     ],
 }
+
+DISPLAY_VARIABLE_ORDER = [
+    "W0",
+    "x0",
+    "D",
+    "xDavg",
+    "B",
+    "xB",
+    "feed_volume",
+    "feed_abv",
+    "product_volume",
+    "product_abv",
+]
 
 VOLUME_TERMS = [
     "gallon",
@@ -229,6 +242,86 @@ def _contains_abv_value(text: str) -> bool:
         re.search(r"\b\d+(\.\d+)?\s*(%|proof)\s*(abv)?\b", text)
         or re.search(r"\b\d+(\.\d+)?\s*abv\b", text)
     )
+
+
+def _extract_named_value(raw_text: str, variable: str) -> str | None:
+    patterns = {
+        "W0": r"\bW0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        "x0": r"\bx0\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        "D": r"(?<!x)\bD\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        "xDavg": r"\bxDavg\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        "B": r"(?<!x)\bB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+        "xB": r"\bxB\b\s*(?:=|is|of)?\s*([0-9]+(?:\.[0-9]+)?)",
+    }
+    match = re.search(patterns[variable], raw_text, flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _extract_volume_assignment(raw_text: str) -> tuple[str | None, str | None]:
+    match = re.search(
+        r"\b([0-9]+(?:\.[0-9]+)?)\s*(gallons?|gal|liters?|litres?|litres|liter|litre|l|ml)\b",
+        raw_text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None, None
+    return match.group(1), match.group(2)
+
+
+def _extract_abv_assignment(raw_text: str) -> str | None:
+    match = re.search(
+        r"\b([0-9]+(?:\.[0-9]+)?)\s*(%?\s*ABV|ABV|proof)\b",
+        raw_text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        match = re.search(r"\b([0-9]+(?:\.[0-9]+)?)\s*%\b", raw_text, flags=re.IGNORECASE)
+        if not match:
+            return None
+        return f"{match.group(1)}%"
+    value = re.sub(r"\s+", " ", match.group(0).strip())
+    return value
+
+
+def _extract_variable_assignments(raw_text: str, normalized_text: str, goal: str) -> dict[str, str]:
+    assignments: dict[str, str] = {}
+    refers_to_feed = _contains_any(normalized_text, ["wash", "feed", "starting with", "i have"])
+    refers_to_product = _contains_any(normalized_text, ["product", "distillate", "to get", "i want"])
+
+    for variable in ["W0", "x0", "D", "xDavg", "B", "xB"]:
+        value = _extract_named_value(raw_text, variable)
+        if value is not None:
+            assignments[variable] = value
+
+    volume_value, volume_unit = _extract_volume_assignment(raw_text)
+    abv_value = _extract_abv_assignment(raw_text)
+
+    if volume_value and volume_unit:
+        volume_display = f"{volume_value} {volume_unit}"
+        if goal == "feed_to_product_sweep" and refers_to_feed:
+            assignments["feed_volume"] = volume_display
+        elif goal == "product_to_feed_sweep" or (refers_to_product and not refers_to_feed):
+            assignments["product_volume"] = volume_display
+        elif refers_to_feed:
+            assignments["feed_volume"] = volume_display
+        else:
+            assignments["feed_volume"] = volume_display
+
+    if abv_value:
+        if goal == "feed_to_product_sweep" and refers_to_feed:
+            assignments["feed_abv"] = abv_value
+        elif goal == "product_to_feed_sweep" or (refers_to_product and not refers_to_feed):
+            assignments["product_abv"] = abv_value
+        elif refers_to_feed:
+            assignments["feed_abv"] = abv_value
+        else:
+            assignments["feed_abv"] = abv_value
+
+    return {
+        key: assignments[key]
+        for key in DISPLAY_VARIABLE_ORDER
+        if key in assignments
+    }
 
 
 def _detect_input_format(text: str) -> str:
@@ -430,6 +523,7 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         known_inputs=known_inputs,
         requested_outputs=requested_outputs,
     )
+    variable_assignments = _extract_variable_assignments(user_message, normalized, goal)
 
     if goal == "unsupported_or_unclear":
         user_facing_summary = (
@@ -443,6 +537,7 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         known_inputs=known_inputs,
         requested_outputs=requested_outputs,
         missing_inputs=missing_inputs,
+        variable_assignments=variable_assignments,
         input_format=input_format,
         output_format=output_format,
         requires_input_conversion=requires_input_conversion,
@@ -452,3 +547,48 @@ def classify_goal_deterministic(user_message: str) -> GoalClassification:
         reasoning_summary=reasoning_summary,
         user_facing_summary=user_facing_summary,
     )
+
+
+def classify_goal_llm(user_message: str, model_name: str = "gpt-4o-mini") -> GoalClassification:
+    """Classify a user request with an LLM using structured output."""
+
+    from dotenv import load_dotenv
+    from langchain_openai import ChatOpenAI
+
+    from .classification_prompt import CLASSIFICATION_SYSTEM_PROMPT
+
+    load_dotenv()
+    llm = ChatOpenAI(model=model_name, temperature=0)
+    structured_llm = llm.with_structured_output(GoalClassification)
+    result = structured_llm.invoke(
+        [
+            ("system", CLASSIFICATION_SYSTEM_PROMPT),
+            ("human", user_message),
+        ]
+    )
+    return result
+
+
+def classify_goal(
+    user_message: str,
+    use_llm: bool = True,
+    model_name: str = "gpt-4o-mini",
+) -> GoalClassification:
+    """Classify a user request with the primary LLM path and deterministic fallback."""
+
+    if use_llm:
+        try:
+            return classify_goal_llm(user_message, model_name=model_name)
+        except Exception as exc:
+            fallback = classify_goal_deterministic(user_message)
+            fallback.reasoning_summary = (
+                "Fallback used after LLM error: "
+                f"{exc}. Deterministic baseline classification returned. "
+                f"{fallback.reasoning_summary}"
+            )
+            fallback.user_facing_summary = (
+                "The LLM classifier was unavailable, so the deterministic fallback was used."
+            )
+            return fallback
+
+    return classify_goal_deterministic(user_message)
